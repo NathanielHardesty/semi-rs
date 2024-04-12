@@ -1,0 +1,11 @@
+[package]
+name = "secs-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hsms = {path = "../semi-hsms-rs", version = "0.1.0"}
+secs-ii = {path = "../semi-secsii-rs", version = "0.1.0"}
+gem = {path = "../semi-gem-rs", version = "0.1.0"}

@@ -1,0 +1,10 @@
+[workspace]
+
+members = [
+  "semi-gem-rs",
+  "semi-hsms-rs",
+  "semi-secsii-rs",
+  "example",
+]
+
+resolver = "2"
