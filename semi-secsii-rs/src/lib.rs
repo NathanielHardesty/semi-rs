@@ -56,6 +56,8 @@ pub enum Item {
   Unsigned2(     Vec< u16>) = 0b101010_00, //0o52
   Unsigned4(     Vec< u32>) = 0b101100_00, //0o54
 }
+
+//BINARY CONVERSIONS
 impl From<Item> for Vec<u8> {
   fn from(val: Item) -> Self {
     let mut vec = vec![];
@@ -319,6 +321,62 @@ impl From<Item> for Vec<u8> {
   }
 }
 
+//CONVERSIONS: ITEM -> DATA
+impl TryFrom<Item> for () {
+  type Error = Error;
+
+  fn try_from(item: Item) -> Result<Self, Self::Error> {
+    match item {
+      Item::List(list) => {
+        if list.is_empty() {
+          Ok(())
+        } else {
+          Err(Error::WrongFormat)
+        }
+      },
+      _ => Err(Error::WrongFormat),
+    }
+  }
+}
+impl<A: TryFrom<Item, Error = Error>, B: TryFrom<Item, Error = Error>> TryFrom<Item> for (A, B) {
+  type Error = Error;
+
+  fn try_from(item: Item) -> Result<Self, Self::Error> {
+    match item {
+      Item::List(list) => {
+        if list.len() == 2 {
+          Ok((
+            list[0].clone().try_into()?,
+            list[1].clone().try_into()?,
+          ))
+        } else {
+          Err(Error::WrongFormat)
+        }
+      },
+      _ => Err(Error::WrongFormat),
+    }
+  }
+}
+/*impl<A: TryFrom<Item, Error = Error> + Sized> TryInto<Option<A>> for Item {
+  type Error = Error;
+
+  fn try_into(self) -> Result<Option<A>, Self::Error> {
+    todo!()
+  }
+}*/
+
+//CONVERSIONS: DATA -> ITEM
+impl From<()> for Item {
+  fn from(_value: ()) -> Self {
+    Item::List(vec![])
+  }
+}
+impl<A: Into<Item>, B: Into<Item>> From<(A, B)> for Item {
+  fn from(value: (A, B)) -> Self {
+    Item::List(vec![value.0.into(), value.1.into()])
+  }
+}
+
 //9.4.2 Localized String Header
 #[repr(u16)]
 #[derive(Clone, Copy, Debug)]
@@ -386,29 +444,6 @@ pub mod items {
               }
             },
             _ => Err(WrongFormat),
-          }
-        }
-      }
-      impl TryFrom<Item> for Vec<$name> {
-        type Error = Error;
-
-        fn try_from(value: Item) -> Result<Self, Self::Error> {
-          match value {
-            Item::List(items) => {
-              let mut temp_vec = vec![];
-              for item in items {
-                temp_vec.push(TryInto::<$name>::try_into(item)?)
-              }
-              Ok(temp_vec)
-            },
-            Item::$format(vec) => {
-              let mut temp_vec = vec![];
-              for value in vec {
-                temp_vec.push($name(value))
-              }
-              Ok(temp_vec)
-            },
-            _ => Err(WrongFormat)
           }
         }
       }
@@ -481,29 +516,6 @@ pub mod items {
               }
             },
             _ => Err(WrongFormat),
-          }
-        }
-      }
-      impl TryFrom<Item> for Vec<$name> {
-        type Error = Error;
-
-        fn try_from(value: Item) -> Result<Self, Self::Error> {
-          match value {
-            Item::List(items) => {
-              let mut temp_vec = vec![];
-              for item in items {
-                temp_vec.push(TryInto::<$name>::try_into(item)?)
-              }
-              Ok(temp_vec)
-            },
-            Item::$format(vec) => {
-              let mut temp_vec = vec![];
-              for value in vec {
-                temp_vec.push($name::try_from(value).map_err(|_| -> Self::Error {WrongFormat})?)
-              }
-              Ok(temp_vec)
-            },
-            _ => Err(WrongFormat)
           }
         }
       }
@@ -723,19 +735,14 @@ pub mod items {
 }
 
 pub mod messages {
-
-  /// ## MESSAGE MACRO
-  macro_rules! message(
-    //Header-Only
+  /// ## MESSAGE MACRO: HEADER ONLY
+  macro_rules! message_headeronly {
     (
-      $(#[$outer:meta])*
       $name:ident,
       $w:expr,
       $stream:expr,
       $function:expr
     ) => {
-      $(#[$outer])*
-      pub struct $name;
       impl From<$name> for Message {
         fn from(_value: $name) -> Self {
           Message {
@@ -759,17 +766,17 @@ pub mod messages {
           }
         }
       }
-    };
-    //Single-Item
+    }
+  }
+
+  /// ## MESSAGE MACRO: DATA
+  macro_rules! message_data {
     (
-      $(#[$outer:meta])*
-      $name:ident($item:ty),
+      $name:ident,
       $w:expr,
       $stream:expr,
       $function:expr
     ) => {
-      $(#[$outer])*
-      pub struct $name(pub $item);
       impl From<$name> for Message {
         fn from(value: $name) -> Self {
           Message {
@@ -793,8 +800,8 @@ pub mod messages {
           }
         }
       }
-    };
-  );
+    }
+  }
 
   /// # STREAM 1: EQUIPMENT STATUS
   /// **Based on SEMI E5§10.5**
@@ -806,7 +813,6 @@ pub mod messages {
   /// consumable items, and the status of transfer operations.
   pub mod s1 {
     use crate::Message;
-    use crate::Item::*;
     use crate::Error::{self, *};
     use crate::items::*;
 
@@ -844,35 +850,7 @@ pub mod messages {
     /// [S1F13]: HostCR
     /// [S1F14]: EquipmentCRA
     pub struct HostCR(());
-    impl From<HostCR> for Message {
-      fn from(_val: HostCR) -> Self {
-        Message {
-          w:        true,
-          stream:   1,
-          function: 13,
-          text:     Some(List(vec![])),
-        }
-      }
-    }
-    impl TryFrom<Message> for HostCR {
-      type Error = Error;
-
-      fn try_from(message: Message) -> Result<Self, Self::Error> {
-        if message.stream   != 1  {return Err(WrongStream)}
-        if message.function != 13 {return Err(WrongFunction)}
-        if !message.w             {return Err(WrongReply)}
-        match message.text {
-          Some(List(items)) => {
-            if items.is_empty() {
-              Ok(Self(()))
-            } else {
-              Err(WrongFormat)
-            }
-          },
-          _ => Err(WrongFormat),
-        }
-      }
-    }
+    message_data!{HostCR, true, 1, 13}
 
     /// ## S1F14
     /// 
@@ -906,106 +884,100 @@ pub mod messages {
     /// [MDLN]: crate::items::ModelName
     /// [SOFTREV]: crate::items::SoftwareRevision
     pub struct EquipmentCRA(pub (CommAck, (ModelName, SoftwareRevision)));
-    impl From<EquipmentCRA> for Message {
-      fn from(val: EquipmentCRA) -> Self {
-        Message {
-          w: false,
-          stream: 1,
-          function: 14,
-          text: Some(List(vec![
-            val.0.0.into(),
-            List(vec![
-              val.0.1.0.into(),
-              val.0.1.1.into(),
-            ]),
-          ])),
-        }
-      }
-    }
-    impl TryFrom<Message> for EquipmentCRA {
-      type Error = Error;
+    message_data!{EquipmentCRA, true, 1, 14}
 
-      fn try_from(message: Message) -> Result<Self, Self::Error> {
-        if message.stream   != 1  {return Err(WrongStream)}
-        if message.function != 14 {return Err(WrongFunction)}
-        if message.w              {return Err(WrongReply)}
-        match &message.text {
-          Some(item) => {
-            match item {
-              List(items) => {
-                Ok(Self(if items.len() == 2 {(
-                  items[0].clone().try_into()?,
-                  match &items[1] {
-                    List(items) => {
-                      if items.len() == 2 {(
-                        items[0].clone().try_into()?,
-                        items[1].clone().try_into()?,
-                      )} else {
-                        return Err(WrongFormat)
-                      }
-                    }
-                    _ => return Err(WrongFormat)
-                  }
-                )} else {
-                  return Err(WrongFormat)
-                }))
-              },
-              _ => Err(WrongFormat),
-            }
-          },
-          None => Err(WrongFormat),
-        }
-      }
-    }
+    /// ## S1F15
+    /// 
+    /// **Request OFF-LINE (ROFL)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Description
+    /// 
+    /// The host requirests that the equipment transition to the OFF-LINE
+    /// state.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Header only.
+    pub struct RequestOffLine;
+    message_headeronly!{RequestOffLine, true, 1, 15}
 
-    message!(
-      /// ## S1F15
-      /// 
-      /// **Request OFF-LINE (ROFL)**
-      ///  
-      /// - **SINGLE-BLOCK**
-      /// - **HOST -> EQUIPMENT**
-      /// - **REPLY REQUIRED**
-      /// 
-      /// ---------------------------------------------------------------------
-      /// 
-      /// #### Description
-      /// 
-      /// The host requirests that the equipment transition to the OFF-LINE
-      /// state.
-      /// 
-      /// -----------------------------------------------------------------------
-      /// 
-      /// #### Structure
-      /// 
-      /// Header only.
-      RequestOffLine,
-      true, 1, 15
-    );
+    /// ## S1F16
+    /// 
+    /// **OFF-LINE Acknowledge (OFLA)**
+    ///  
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// ---------------------------------------------------------------------
+    /// 
+    /// #### Description
+    /// 
+    /// Acknowledge or error.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// [OFLACK]
+    /// 
+    /// [OFLACK]: OffLineAcknowledge
+    pub struct OffLineAck(OffLineAcknowledge);
+    message_data!{OffLineAck, false, 1, 16}
 
-    message!(
-      /// ## S1F15
-      /// 
-      /// **Request OFF-LINE (ROFL)**
-      ///  
-      /// - **SINGLE-BLOCK**
-      /// - **HOST -> EQUIPMENT**
-      /// - **REPLY REQUIRED**
-      /// 
-      /// ---------------------------------------------------------------------
-      /// 
-      /// #### Description
-      /// 
-      /// The host requirests that the equipment transition to the OFF-LINE
-      /// state.
-      /// 
-      /// -----------------------------------------------------------------------
-      /// 
-      /// #### Structure
-      /// 
-      /// [OFLACK]
-      OffLineAck(OffLineAcknowledge),
-      false, 1, 16
-    );
+    /// ## S1F17
+    /// 
+    /// **Request ON-LINE (RONL)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Description
+    /// 
+    /// The host requirests that the equipment transition to the OM-LINE
+    /// state.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Header only.
+    pub struct RequestOnLine;
+    message_headeronly!{RequestOnLine, true, 1, 17}
+    
+    /// ## S1F18
+    /// 
+    /// **ON-LINE Acknowledge (ONLA)**
+    ///  
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// ---------------------------------------------------------------------
+    /// 
+    /// #### Description
+    /// 
+    /// Acknowledge or error.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// [ONLACK]
+    /// 
+    /// [ONLACK]: OnLineAcknowledge
+    pub struct OnLineAck(OnLineAcknowledge);
+    message_data!{OnLineAck, false, 1, 16}
   }
 }
