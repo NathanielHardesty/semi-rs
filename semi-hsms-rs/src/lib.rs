@@ -1,6 +1,3 @@
-#![crate_name = "hsms"]
-#![crate_type = "lib"]
-
 //! # HIGH-SPEED SECS MESSAGE SERVICES (HSMS)
 //! **Based on:**
 //! - **[SEMI E37]-1109**
@@ -123,6 +120,9 @@
 //! [T6]:                             ParameterSettings::t6
 //! [T7]:                             ParameterSettings::t7
 //! [T8]:                             ParameterSettings::t8
+
+#![crate_name = "hsms"]
+#![crate_type = "lib"]
 
 use std::{
   collections::HashMap,

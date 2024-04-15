@@ -1,7 +1,3 @@
-#![feature(ascii_char)]
-#![allow(clippy::unusual_byte_groupings)]
-#![allow(clippy::collapsible_match)]
-
 //! # SEMI EQUIPMENT COMMUNICATIONS STANDARD 2 MESSAGE CONTENT (SECS-II)
 //! **Based on:**
 //! - **[SEMI E5]-0712**
@@ -19,6 +15,10 @@
 //! 
 //! ---------------------------------------------------------------------------
 
+#![feature(ascii_char)]
+#![allow(clippy::unusual_byte_groupings)]
+#![allow(clippy::collapsible_match)]
+
 use std::ascii::Char;
 
 /// ## DATA CONVERSION ERROR
@@ -29,6 +29,18 @@ pub enum Error {
   WrongFormat,
 }
 
+/// ## OPTIONAL LIST
+/// 
+/// Represents a List with either a set number of elements, or acceptably 0
+/// elements in certain cases. The intent is that the type T will be a tuple
+/// representing a heterogenous list of elements.
+pub struct OptionList<T>(pub Option<T>);
+
+/// ## VECTORIZED LIST
+/// 
+/// Represents a List with a variable number of elements of the same structure.
+pub struct VecList<T>(pub Vec<T>);
+
 //9.3.1
 //Table 1 Item Format Codes
 //MSB Sent First
@@ -37,8 +49,10 @@ pub enum Error {
 pub enum Item {
   // 0 = List
   List     (     Vec<Item>) = 0b000000_00, //0o00
+  // 1() = Raw Data
   Binary   (     Vec<  u8>) = 0b001000_00, //0o10
   Boolean  (     Vec<bool>) = 0b001001_00, //0o11
+  // 2() = Strings
   Ascii    (     Vec<Char>) = 0b010000_00, //0o20
   Jis8     (     Vec<  u8>) = 0b010001_00, //0o21
   Localized(u16, Vec< u16>) = 0b010010_00, //0o22
@@ -57,7 +71,7 @@ pub enum Item {
   Unsigned4(     Vec< u32>) = 0b101100_00, //0o54
 }
 
-//BINARY CONVERSIONS
+/// ## FROM: ITEM -> BINARY DATA
 impl From<Item> for Vec<u8> {
   fn from(val: Item) -> Self {
     let mut vec = vec![];
@@ -321,7 +335,7 @@ impl From<Item> for Vec<u8> {
   }
 }
 
-//CONVERSIONS: ITEM -> DATA
+/// ## FROM: ITEM -> EMPTY LIST
 impl TryFrom<Item> for () {
   type Error = Error;
 
@@ -338,6 +352,44 @@ impl TryFrom<Item> for () {
     }
   }
 }
+
+/// ## FROM: ITEM -> OPTIONAL LIST
+impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for OptionList<A> {
+  type Error = Error;
+
+  fn try_from(item: Item) -> Result<Self, Self::Error> {
+    match item {
+      Item::List(list) => {
+        if list.is_empty() {
+          Ok(Self(None))
+        } else {
+          Ok(Self(Some(Item::List(list).try_into()?)))
+        }
+      },
+      _ => Err(Error::WrongFormat),
+    }
+  }
+}
+
+/// ## FROM: ITEM -> VECTORIZED LIST
+impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for VecList<A> {
+  type Error = Error;
+
+  fn try_from(item: Item) -> Result<Self, Self::Error> {
+    match item {
+      Item::List(list) => {
+        let mut vec = vec![];
+        for list_item in list {
+          vec.push(list_item.try_into()?)
+        }
+        Ok(Self(vec))
+      },
+      _ => Err(Error::WrongFormat),
+    }
+  }
+}
+
+/// ## FROM: ITEM -> HETEROGENEOUS LIST (2 ELEMENTS)
 impl<A: TryFrom<Item, Error = Error>, B: TryFrom<Item, Error = Error>> TryFrom<Item> for (A, B) {
   type Error = Error;
 
@@ -357,20 +409,36 @@ impl<A: TryFrom<Item, Error = Error>, B: TryFrom<Item, Error = Error>> TryFrom<I
     }
   }
 }
-/*impl<A: TryFrom<Item, Error = Error> + Sized> TryInto<Option<A>> for Item {
-  type Error = Error;
 
-  fn try_into(self) -> Result<Option<A>, Self::Error> {
-    todo!()
-  }
-}*/
-
-//CONVERSIONS: DATA -> ITEM
+// ## FROM: EMPTY LIST -> ITEM
 impl From<()> for Item {
-  fn from(_value: ()) -> Self {
+  fn from(_empty_list: ()) -> Self {
     Item::List(vec![])
   }
 }
+
+// ## FROM: OPTIONAL LIST -> ITEM
+impl<A: Into<Item>> From<OptionList<A>> for Item {
+  fn from(option_list: OptionList<A>) -> Self {
+    match option_list.0 {
+      Some(item) => item.into(),
+      None => Item::List(vec![]),
+    }
+  }
+}
+
+// ## FROM: VECTORIZED LIST -> ITEM
+impl<A: Into<Item>> From<VecList<A>> for Item {
+  fn from(vec_list: VecList<A>) -> Self {
+    let mut vec = vec![];
+    for item in vec_list.0 {
+      vec.push(item.into())
+    }
+    Item::List(vec)
+  }
+}
+
+// ## FROM: HETEROGENEOUS LIST (2 ELEMENTS) -> ITEM
 impl<A: Into<Item>, B: Into<Item>> From<(A, B)> for Item {
   fn from(value: (A, B)) -> Self {
     Item::List(vec![value.0.into(), value.1.into()])
@@ -413,6 +481,8 @@ pub struct Message {
   pub text: Option<Item>,
 }
 
+/// # ITEMS
+/// **Based on SEMI E5§9.6**
 pub mod items {
   use crate::Item;
   use crate::Error::{self, *};
@@ -515,6 +585,53 @@ pub mod items {
                 Err(WrongFormat)
               }
             },
+            _ => Err(WrongFormat),
+          }
+        }
+      }
+    }
+  }
+
+  /// ## DATA ITEM MACRO: MULTIPLE ACCCEPTED FORMATS, VECTOR LENGTH 1
+  macro_rules! multiformat {
+    (
+      $name:ident
+      ,$format:ident
+      $(,$formats:ident)*
+      $(,)?
+    ) => {
+      impl From<$name> for Item {
+        fn from(value: $name) -> Item {
+          match value {
+            $name::$format(val) => Item::$format(vec![val]),
+            $(
+              $name::$formats(val) => Item::$formats(vec![val]),
+            )*
+          }
+          
+        }
+      }
+      impl TryFrom<Item> for $name {
+        type Error = Error;
+
+        fn try_from(value: Item) -> Result<Self, Self::Error> {
+          match value {
+            Item::$format(vec) => {
+              if vec.len() == 1 {
+                Ok(Self::$format(vec[0]))
+              } else {
+                Err(WrongFormat)
+              }
+            },
+            $(
+              Item::$formats(vec) => {
+                if vec.len() == 1 {
+                  Ok(Self::$formats(vec[0]))
+                } else {
+                  Err(WrongFormat)
+                }
+              },
+            )*
             _ => Err(WrongFormat),
           }
         }
@@ -732,6 +849,24 @@ pub mod items {
     //65536+: User Defined
   }
 
+  // ## SVID
+  pub enum StatusVariableID {
+    Binary    (u8 ),
+    Signed1   (i8 ),
+    Signed2   (i16),
+    Signed4   (i32),
+    Signed8   (i64),
+    Unsigned1 (u8 ),
+    Unsigned2 (u16),
+    Unsigned4 (u32),
+    Unsigned8 (u64),
+  }
+  multiformat!{
+    StatusVariableID,
+    Binary,
+    Signed1, Signed2, Signed4, Signed8,
+    Unsigned1, Unsigned2, Unsigned4, Unsigned8,
+  }
 }
 
 /// # MESSAGES
@@ -838,9 +973,129 @@ pub mod messages {
   /// 
   /// [Message]: crate::Message
   pub mod s1 {
-    use crate::Message;
+    use crate::*;
     use crate::Error::{self, *};
     use crate::items::*;
+
+    /// ## S1F1
+    /// 
+    /// **Are You There Request (R)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Establishes if the equipment is on-line. A function 0 response to this
+    /// message is equivalent to receiving a timeout on the receive timer.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Header only.
+    pub struct AreYouThere;
+    message_headeronly!{AreYouThere, true, 1, 1}
+
+    /// ## S1F2
+    /// 
+    /// **On Line Data (D)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Data signifying the equipment is alive.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - 0
+    pub struct HostOnLineData(());
+    message_data!{HostOnLineData, false, 1, 2}
+
+    /// ## S1F2
+    /// 
+    /// **On Line Data (D)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Data signifying the equipment is alive.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - 2
+    ///   1. [MDLN]
+    ///   2. [SOFTREV]
+    /// 
+    /// [MDLN]:    ModelName
+    /// [SOFTREV]: SoftwareRevision
+    pub struct EquipmentOnLineData(pub (ModelName, SoftwareRevision));
+    message_data!{EquipmentOnLineData, false, 1, 2}
+
+    /// ## S1F3
+    /// 
+    /// **Selected Equipment Status Request (SSR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// A request to the equipment to report selected values of its status.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - n
+    ///   - [SVID]
+    /// 
+    /// A zero-length list means to report all SVIDs.
+    /// 
+    /// [SVID]: StatusVariableID
+    pub struct SelectedEquipmentStatusRequest(pub VecList<StatusVariableID>);
+    message_data!{SelectedEquipmentStatusRequest, true, 1, 3}
+
+    /// ## S1F4
+    /// 
+    /// **Selected Equipment Status Data (SSD)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// The equipment reports the value of each SVID requested in the order
+    /// requested.
+    /// 
+    /// The host must remember the names of the values it requested.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - n
+    ///   - [SV]
+    /// 
+    /// A zero-length item for a given [SV] means that the [SVID] does not
+    /// exist.
+    /// 
+    /// [SVID]: StatusVariableID
+    pub struct SelectedEquipmentStatusData(());
+    message_data!{SelectedEquipmentStatusData, false, 1, 4}
 
     /// ## S1F13
     /// 
@@ -851,8 +1106,6 @@ pub mod messages {
     /// - **REPLY REQUIRED**
     /// 
     /// -----------------------------------------------------------------------
-    /// 
-    /// #### Description
     /// 
     /// The purpose of this message is to provide a formal means of
     /// initializing communications at a logical application level both on
@@ -888,8 +1141,6 @@ pub mod messages {
     /// 
     /// -----------------------------------------------------------------------
     /// 
-    /// #### Description
-    /// 
     /// Accept or deny Establish Communications Request ([S1F13]).
     /// 
     /// [MDLN] and [SOFTREV] are on-line data and are valid only if
@@ -905,10 +1156,10 @@ pub mod messages {
     ///      1. [MDLN]
     ///      2. [SOFTREV]
     /// 
-    /// [S1F13]: HostCR
-    /// [COMMACK]: crate::items::CommAck
-    /// [MDLN]: crate::items::ModelName
-    /// [SOFTREV]: crate::items::SoftwareRevision
+    /// [S1F13]:   HostCR
+    /// [COMMACK]: CommAck
+    /// [MDLN]:    ModelName
+    /// [SOFTREV]: SoftwareRevision
     pub struct EquipmentCRA(pub (CommAck, (ModelName, SoftwareRevision)));
     message_data!{EquipmentCRA, true, 1, 14}
 
@@ -921,8 +1172,6 @@ pub mod messages {
     /// - **REPLY REQUIRED**
     /// 
     /// -----------------------------------------------------------------------
-    /// 
-    /// #### Description
     /// 
     /// The host requirests that the equipment transition to the OFF-LINE
     /// state.
@@ -945,8 +1194,6 @@ pub mod messages {
     /// 
     /// ---------------------------------------------------------------------
     /// 
-    /// #### Description
-    /// 
     /// Acknowledge or error.
     /// 
     /// -----------------------------------------------------------------------
@@ -956,7 +1203,7 @@ pub mod messages {
     /// [OFLACK]
     /// 
     /// [OFLACK]: OffLineAcknowledge
-    pub struct OffLineAck(OffLineAcknowledge);
+    pub struct OffLineAck(pub OffLineAcknowledge);
     message_data!{OffLineAck, false, 1, 16}
 
     /// ## S1F17
@@ -968,8 +1215,6 @@ pub mod messages {
     /// - **REPLY REQUIRED**
     /// 
     /// -----------------------------------------------------------------------
-    /// 
-    /// #### Description
     /// 
     /// The host requirests that the equipment transition to the OM-LINE
     /// state.
@@ -992,8 +1237,6 @@ pub mod messages {
     /// 
     /// ---------------------------------------------------------------------
     /// 
-    /// #### Description
-    /// 
     /// Acknowledge or error.
     /// 
     /// -----------------------------------------------------------------------
@@ -1003,7 +1246,7 @@ pub mod messages {
     /// [ONLACK]
     /// 
     /// [ONLACK]: OnLineAcknowledge
-    pub struct OnLineAck(OnLineAcknowledge);
+    pub struct OnLineAck(pub OnLineAcknowledge);
     message_data!{OnLineAck, false, 1, 16}
   }
 
@@ -1021,7 +1264,9 @@ pub mod messages {
   /// - Loading of executive and boot programs ([Stream 8]).
   /// - File and operating system calls ([Stream 10], [Stream 13]).
   /// 
-  /// Continuations of this functionality exist in [Stream 17].
+  /// -------------------------------------------------------------------------
+  /// 
+  /// This functionality continues in [Stream 17].
   /// 
   /// -------------------------------------------------------------------------
   /// 
@@ -1343,13 +1588,103 @@ pub mod messages {
   /// [Message]: crate::Message
   pub mod s16 {}
 
+  /// # STREAM 17: EQUIPMENT CONTROL AND DIAGNOSTICS
+  /// **Based on SEMI E5§10.21**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// [Message]s which deal with control of the equipment from the host.
+  /// 
+  /// This includes all remote operations and equipment self-diagnostics and
+  /// calibration but specifically excluses:
+  /// 
+  /// - Control operations associated with material transfer ([Stream 4]).
+  /// - Loading of executive and boot programs ([Stream 8]).
+  /// - File and operating system calls ([Stream 10], [Stream 13]).
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// This is a continuation of [Stream 2].
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// TODO: Fill out stream's contents.
+  /// 
+  /// [Message]: crate::Message
+  /// [Stream 2]: crate::messages::s2
+  /// [Stream 4]: crate::messages::s4
+  /// [Stream 8]: crate::messages::s8
+  /// [Stream 10]: crate::messages::s10
+  /// [Stream 13]: crate::messages::s13
   pub mod s17 {}
 
+  /// # STREAM 18: SUBSYSTEM CONTROL AND DATA
+  /// **Based on SEMI E5§10.22**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// [Message]s which deal with interfacing between component subsystems and
+  /// higher level controllers.
+  /// 
+  /// Compared to similar mesages exchanged between equipment and host,
+  /// subsystem messages are less complex.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// TODO: Fill out stream's contents.
+  /// 
+  /// [Message]: crate::Message
   pub mod s18 {}
 
+  /// # STREAM 19: RECIPE AND PARAMETER MANAGEMENT
+  /// **Based on SEMI E5§10.23**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// [Message]s which deal with management of recipes that include:
+  /// 
+  /// - Self-documenting recipe component headers.
+  /// - Support for multi-part recipes.
+  /// - User-configured parameters.
+  /// - Full assurance of byte integrity of PDE content.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// Definitions:
+  /// 
+  /// - PDE - Process Definition Element - A component of a recipe, including
+  /// an informational PDEheader and execution content PDEbody.
+  /// - Recipe - Instructions or data that direct equipment behavior. A recipe
+  /// is composed of one or more PDEs.
+  /// - UID - Unique IDentifier - Used to identify a PDE.
+  /// - GID - Group IDentifier - Used to identify PDEs that are subsitutable
+  /// for one another.
+  /// - InputMap, OutputMap - Data used to resolve references between PDEs in a
+  /// multiple component recipe. These maps consist of a list of GID with the
+  /// corresponding UID.
+  /// - Resolve - Determination of all the components in a multi-part recipe.
+  /// This is the process of creating an Outputmap that satisfies all the PDEs
+  /// in a recipe.
+  /// - TransferContainer - A group of PDEs or PDEheaders bound together as a
+  /// single [Stream 13] Data Set for transfer.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// TODO: Fill out stream's contents.
+  /// 
+  /// [Message]: crate::Message
+  /// [Stream 13]: crate::messages::s13
   pub mod s19 {}
 
+  /// # STREAM 20: RECIPE MANAGEMENT SYSTEM
+  /// 
+  /// The definition of this stream exists in a newer version of the standard
+  /// as compared to [SEMI E5]-0712.
   pub mod s20 {}
 
+  /// # STREAM 21: ITEM TRANSFER
+  /// 
+  /// The definition of this stream exists in a newer version of the standard
+  /// as compared to [SEMI E5]-0712.
   pub mod s21 {}
 }

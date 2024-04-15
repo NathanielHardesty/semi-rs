@@ -9,6 +9,9 @@ fn main() {
       secs_ii::items::AnyBinaryString::new(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).unwrap()
     )
   ));
+  println!("{:?}", Into::<secs_ii::Message>::into(
+    secs_ii::messages::s1::OnLineAck(secs_ii::items::OnLineAcknowledge::Accepted)
+  ));
   //CLIENT
   let parameter_settings: ParameterSettings = ParameterSettings::default();
   let client: Arc<GenericClient> = GenericClient::new(parameter_settings);
