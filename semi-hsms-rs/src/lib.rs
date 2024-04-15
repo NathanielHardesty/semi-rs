@@ -844,38 +844,33 @@ impl PrimitiveClient {
     tx_sender: Sender<HsmsMessage>,
   ) {
     println!("PrimitiveClient::rx_handle start");
-    loop {
-      match self.connection_state.read().unwrap().deref() {
-        ConnectionState::Connected(stream) => {
-          match rx(stream) {
-            //RX Success
-            Ok(optional_rx_message) => if let Some(rx_message) = optional_rx_message {
-              let rx_header = rx_message.header;
-              let optional_hsms_message: Result<HsmsMessage, RejectReason> = HsmsMessage::try_from(rx_message);
-              match optional_hsms_message {
-                //Known Message Type
-                Ok(hsms_message) => {
-                  if rx_sender.send(hsms_message).is_err() {break}
-                },
-                //Unknown Message Type
-                Err(reject_reason) => {
-                  //Reject.req
-                  if tx_sender.send(
-                    HsmsMessage::RejectRequest(RejectRequest{
-                      session_id   : rx_header.session_id,
-                      message_type : rx_header.session_type,
-                      reason_code  : reject_reason as u8,
-                      system       : rx_header.system,
-                    })
-                  ).is_err() {break}
-                },
-              }
+    while let ConnectionState::Connected(stream) = self.connection_state.read().unwrap().deref() {
+      match rx(stream) {
+        //RX Success
+        Ok(optional_rx_message) => if let Some(rx_message) = optional_rx_message {
+          let rx_header = rx_message.header;
+          let optional_hsms_message: Result<HsmsMessage, RejectReason> = HsmsMessage::try_from(rx_message);
+          match optional_hsms_message {
+            //Known Message Type
+            Ok(hsms_message) => {
+              if rx_sender.send(hsms_message).is_err() {break}
             },
-            //RX Failure
-            Err(_error) => break,
+            //Unknown Message Type
+            Err(reject_reason) => {
+              //Reject.req
+              if tx_sender.send(
+                HsmsMessage::RejectRequest(RejectRequest{
+                  session_id   : rx_header.session_id,
+                  message_type : rx_header.session_type,
+                  reason_code  : reject_reason as u8,
+                  system       : rx_header.system,
+                })
+              ).is_err() {break}
+            },
           }
         },
-        _ => break,
+        //RX Failure
+        Err(_error) => break,
       }
     }
     let _ = self.disconnect();
@@ -1243,7 +1238,7 @@ impl GenericClient {
             None => None,
           }
         } else {
-          if let Err(_) = tx_sender.send(message) {self.disconnect()};
+          if tx_sender.send(message).is_err() {self.disconnect()};
           None
         }
       },
@@ -1618,17 +1613,17 @@ pub struct Message {
   /// [Session Type]:      SessionType
   pub text: Vec<u8>,
 }
-impl Into<Vec<u8>> for &Message {
+impl From<&Message> for Vec<u8> {
   /// ### SERIALIZE MESSAGE
   /// 
   /// Converts a [Message] into raw bytes.
   /// 
   /// [Message]: Message
-  fn into(self) -> Vec<u8> {
+  fn from(val: &Message) -> Self {
     let mut vec: Vec<u8> = vec![];
-    let header_bytes: [u8;10] = self.header.into();
+    let header_bytes: [u8;10] = val.header.into();
     vec.extend(header_bytes.iter());
-    vec.extend(&self.text);
+    vec.extend(&val.text);
     vec
   }
 }
@@ -1710,22 +1705,22 @@ pub struct MessageHeader {
   /// Identifies a transaction uniquely among the set of open transactions.
   pub system : u32,
 }
-impl Into<[u8;10]> for MessageHeader {
+impl From<MessageHeader> for [u8;10] {
   /// ### SERIALIZE MESSAGE HEADER
   /// 
   /// Converts a [Message Header] into raw bytes.
   /// 
   /// [Message Header]: MessageHeader
-  fn into(self) -> [u8;10] {
+  fn from(val: MessageHeader) -> Self {
     let mut bytes: [u8;10] = [0;10];
-    let session_id_bytes: [u8;2] = self.session_id.to_be_bytes();
-    let system_bytes: [u8;4] = self.system.to_be_bytes();
+    let session_id_bytes: [u8;2] = val.session_id.to_be_bytes();
+    let system_bytes: [u8;4] = val.system.to_be_bytes();
     bytes[0] = session_id_bytes[0];
     bytes[1] = session_id_bytes[1];
-    bytes[2] = self.byte_2;
-    bytes[3] = self.byte_3;
-    bytes[4] = self.presentation_type;
-    bytes[5] = self.session_type;
+    bytes[2] = val.byte_2;
+    bytes[3] = val.byte_3;
+    bytes[4] = val.presentation_type;
+    bytes[5] = val.session_type;
     bytes[6] = system_bytes[0];
     bytes[7] = system_bytes[1];
     bytes[8] = system_bytes[2];
