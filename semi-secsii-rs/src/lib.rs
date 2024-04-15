@@ -14,6 +14,13 @@
 //! [SECS-II] messages include [SECS-I] ([SEMI E4]) and [HSMS] ([SEMI E37]).
 //! 
 //! ---------------------------------------------------------------------------
+//! 
+//! [SEMI E4]:  https://store-us.semi.org/products/e00400-semi-e4-specification-for-semi-equipment-communications-standard-1-message-transfer-secs-i
+//! [SEMI E5]:  https://store-us.semi.org/products/e00500-semi-e5-specification-for-semi-equipment-communications-standard-2-message-content-secs-ii
+//! [SEMI E30]: https://store-us.semi.org/products/e03000-semi-e30-specification-for-the-generic-model-for-communications-and-control-of-manufacturing-equipment-gem
+//! [SEMI E37]: https://store-us.semi.org/products/e03700-semi-e37-high-speed-secs-message-services-hsms-generic-services
+//! 
+//! [SECS-II]:  crate
 
 #![feature(ascii_char)]
 #![allow(clippy::unusual_byte_groupings)]
@@ -21,12 +28,288 @@
 
 use std::ascii::Char;
 
+/// ## GENERIC MESSAGE
+/// **Based on SEMI E5§6**
+#[derive(Clone, Debug)]
+pub struct Message {
+  /// ### STREAM
+  /// **Based on SEMI E5§6.4.2**
+  /// 
+  /// The message transfer protocol must be capable of identifying the
+  /// [Stream] of the [Message] (0 to 127, 7 bits).
+  /// 
+  /// The [Stream], together with the [Function], uniquely defines a [Message].
+  /// 
+  /// [Message]:  Message
+  /// [Stream]:   Message::stream
+  /// [Function]: Message::function
+  pub stream: u8,
+
+  /// ### FUNCTION
+  /// **Based on SEMI E5§6.4.2**
+  /// 
+  /// The message transfer protocol must be capable of identifying the
+  /// [Function] of the [Message] (0 to 255, 8 bits).
+  /// 
+  /// The [Function], together with the [Stream], uniquely defines a [Message].
+  /// 
+  /// [Message]:  Message
+  /// [Stream]:   Message::stream
+  /// [Function]: Message::function
+  pub function: u8,
+
+  /// ### REPLY REQUESTED
+  /// **Based on SEMI E5§6.4.3**
+  /// 
+  /// The message transfer protocol must be capable of identifying whether a
+  /// reply is requested to a primary [Message].
+  /// 
+  /// [Message]: Message
+  pub w: bool,
+
+  /// ### MESSAGE BODY
+  /// 
+  /// The message's contents.
+  /// 
+  /// - [None] - Indicates a header-only message.
+  /// - [Some] - Indicates a message with contents after the header.
+  pub body: Option<Item>,
+}
+
 /// ## DATA CONVERSION ERROR
+/// 
+/// Represents an error in converting from a [Generic Message] to any specific
+/// [Message].
+/// 
+/// [Message]:         messages
+/// [Generic Message]: Message
 pub enum Error {
-  WrongReply,
+  /// ### WRONG STREAM
+  /// 
+  /// A [Generic Message] was attempted to be converted into a specifc [Message]
+  /// despite containing the wrong [Stream].
+  /// 
+  /// [Message]:         messages
+  /// [Generic Message]: Message
+  /// [Stream]:          Message::stream
   WrongStream,
+
+  /// ### WRONG FUNCTION
+  /// 
+  /// A [Generic Message] was attempted to be converted into a specifc [Message]
+  /// despite containing the wrong [Function].
+  /// 
+  /// [Message]:         messages
+  /// [Generic Message]: Message
+  /// [Function]:        Message::function
   WrongFunction,
+
+  /// ### WRONG REPLY BIT
+  /// 
+  /// A [Generic Message] was attempted to be converted into a specifc [Message]
+  /// despite containing an unacceptable [Reply Bit] value.
+  /// 
+  /// [Message]:         messages
+  /// [Generic Message]: Message
+  /// [Reply Bit]:       Message::w
+  WrongReply,
+
+  /// ### WRONG FORMAT
+  /// 
+  /// A [Generic Message] was attempted to be converted into a specifc [Message]
+  /// despite containing an improperly formatted [Message Body].
+  /// 
+  /// [Message]:         messages
+  /// [Generic Message]: Message
+  /// [Message Body]:    Message::body
   WrongFormat,
+}
+
+/// ## GENERIC ITEM
+/// **Based on SEMI E5§9**
+/// 
+/// An [Item] is an information packet which has a length defined by the first
+/// 2, 3, or 4 bytes.
+/// 
+/// These first bytes are called the Item Header. The Item Header consists of
+/// the Format Byte and the Length Bytes.
+/// 
+/// - Bits 1 to 2 of the Item Header tell how many of the following bytes
+/// refer to the length of the item.
+/// - The Item Length refers to the number of bytes following the Item Header,
+/// called the Item Body, which is the actual data of the item.
+/// - Bits 3 to 8 of the Item Header define the format of the data which
+/// follows.
+#[repr(u8)]
+#[derive(Clone, Debug)]
+pub enum Item {
+  /// ### LIST
+  /// **Based on SEMI E5§9.3**
+  /// 
+  /// - **Format Code 0o00**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// A [List] is an ordered set of elements, where elements are [Item]s.
+  /// 
+  /// The Item Header of a [List] is unique in that the Item Length refers to
+  /// the length of the [List] in the number of [Item]s it contains, rather
+  /// than the number of bytes.
+  /// 
+  /// [List]: self
+  List(Vec<Item>) = 0b000000_00,
+
+  /// ### BINARY
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o10**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// Single-byte quanitity where the value can be anything and does not
+  /// otherwise have a strictly defined meaning.
+  Binary(Vec<u8>) = 0b001000_00,
+
+  /// ### BOOLEAN
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o11**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// Single-byte quantity where a value of 0 is equivalent to 'true' and any
+  /// non-zero value is equivalent to 'false'.
+  Boolean(Vec<bool>) = 0b001001_00,
+
+  /// ### ASCII
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o20**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ASCII character string.
+  Ascii(Vec<Char>) = 0b010000_00,
+
+  /// ### JIS-8
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o21**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// JIS-8 character string.
+  Jis8(Vec<u8>) = 0b010001_00,
+
+  /// ### LOCALIZED STRING
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o22**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 2-byte character string.
+  Localized(u16, Vec< u16>) = 0b010010_00,
+
+  /// ### 8-BYTE SIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o30**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 8-byte two's compliment integer.
+  Signed8(Vec<i64>) = 0b011000_00,
+
+  /// ### 1-BYTE SIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o31**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 1-byte two's compliment integer.
+  Signed1(Vec<i8>) = 0b011001_00,
+
+  /// ### 2-BYTE SIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o32**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 2-byte two's compliment integer.
+  Signed2(Vec<i16>) = 0b011010_00,
+
+  /// ### 4-BYTE SIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o34**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 4-byte two's compliment integer.
+  Signed4(Vec<i32>) = 0b011100_00,
+
+  /// ### 8-BYTE FLOATING POINT NUMBER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o40**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 8-byte IEEE-754 floating point number.
+  Float8(Vec<f64>) = 0b100000_00,
+
+  /// ### 4-BYTE FLOATING POINT NUMBER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o40**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 4-byte IEEE-754 floating point number.
+  Float4(Vec<f32>) = 0b100100_00,
+
+  /// ### 8-BYTE UNSIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o50**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 8-byte integer.
+  Unsigned8(Vec<u64>) = 0b101000_00,
+
+  /// ### 1-BYTE UNSIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o51**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 1-byte integer.
+  Unsigned1(Vec<u8>) = 0b101001_00,
+
+  /// ### 2-BYTE UNSIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o52**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 2-byte integer.
+  Unsigned2(Vec<u16>) = 0b101010_00,
+
+  /// ### 4-BYTE UNSIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o54**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 4-byte integer.
+  Unsigned4(Vec<u32>) = 0b101100_00,
 }
 
 /// ## OPTIONAL LIST
@@ -41,37 +324,7 @@ pub struct OptionList<T>(pub Option<T>);
 /// Represents a List with a variable number of elements of the same structure.
 pub struct VecList<T>(pub Vec<T>);
 
-//9.3.1
-//Table 1 Item Format Codes
-//MSB Sent First
-#[repr(u8)]
-#[derive(Clone, Debug)]
-pub enum Item {
-  // 0 = List
-  List     (     Vec<Item>) = 0b000000_00, //0o00
-  // 1() = Raw Data
-  Binary   (     Vec<  u8>) = 0b001000_00, //0o10
-  Boolean  (     Vec<bool>) = 0b001001_00, //0o11
-  // 2() = Strings
-  Ascii    (     Vec<Char>) = 0b010000_00, //0o20
-  Jis8     (     Vec<  u8>) = 0b010001_00, //0o21
-  Localized(u16, Vec< u16>) = 0b010010_00, //0o22
-  // 3() = Signed Numbers
-  Signed8  (     Vec< i64>) = 0b011000_00, //0o30
-  Signed1  (     Vec<  i8>) = 0b011001_00, //0o31
-  Signed2  (     Vec< i16>) = 0b011010_00, //0o32
-  Signed4  (     Vec< i32>) = 0b011100_00, //0o34
-  // 4() = Floating Point Numbers
-  Float8   (     Vec< f64>) = 0b100000_00, //0o40
-  Float4   (     Vec< f32>) = 0b100100_00, //0o44
-  // 5() = Unsigned Numbers
-  Unsigned8(     Vec< u64>) = 0b101000_00, //0o50
-  Unsigned1(     Vec<  u8>) = 0b101001_00, //0o51
-  Unsigned2(     Vec< u16>) = 0b101010_00, //0o52
-  Unsigned4(     Vec< u32>) = 0b101100_00, //0o54
-}
-
-/// ## FROM: ITEM -> BINARY DATA
+/// ## ITEM -> BINARY DATA
 impl From<Item> for Vec<u8> {
   fn from(val: Item) -> Self {
     let mut vec = vec![];
@@ -335,7 +588,7 @@ impl From<Item> for Vec<u8> {
   }
 }
 
-/// ## FROM: ITEM -> EMPTY LIST
+/// ## ITEM -> EMPTY LIST
 impl TryFrom<Item> for () {
   type Error = Error;
 
@@ -353,7 +606,7 @@ impl TryFrom<Item> for () {
   }
 }
 
-/// ## FROM: ITEM -> OPTIONAL LIST
+/// ## ITEM -> OPTIONAL LIST
 impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for OptionList<A> {
   type Error = Error;
 
@@ -371,7 +624,7 @@ impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for OptionList<A> {
   }
 }
 
-/// ## FROM: ITEM -> VECTORIZED LIST
+/// ## ITEM -> VECTORIZED LIST
 impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for VecList<A> {
   type Error = Error;
 
@@ -389,8 +642,11 @@ impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for VecList<A> {
   }
 }
 
-/// ## FROM: ITEM -> HETEROGENEOUS LIST (2 ELEMENTS)
-impl<A: TryFrom<Item, Error = Error>, B: TryFrom<Item, Error = Error>> TryFrom<Item> for (A, B) {
+/// ## ITEM -> HETEROGENEOUS LIST (2 ELEMENTS)
+impl <
+  A: TryFrom<Item, Error = Error>,
+  B: TryFrom<Item, Error = Error>,
+> TryFrom<Item> for (A, B) {
   type Error = Error;
 
   fn try_from(item: Item) -> Result<Self, Self::Error> {
@@ -410,14 +666,17 @@ impl<A: TryFrom<Item, Error = Error>, B: TryFrom<Item, Error = Error>> TryFrom<I
   }
 }
 
-// ## FROM: EMPTY LIST -> ITEM
+// TODO: ITEM -> HETEROGENEOUS LIST, UP TO 15 ELEMENTS
+// NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
+
+/// ## EMPTY LIST -> ITEM
 impl From<()> for Item {
   fn from(_empty_list: ()) -> Self {
     Item::List(vec![])
   }
 }
 
-// ## FROM: OPTIONAL LIST -> ITEM
+/// ## OPTIONAL LIST -> ITEM
 impl<A: Into<Item>> From<OptionList<A>> for Item {
   fn from(option_list: OptionList<A>) -> Self {
     match option_list.0 {
@@ -427,7 +686,7 @@ impl<A: Into<Item>> From<OptionList<A>> for Item {
   }
 }
 
-// ## FROM: VECTORIZED LIST -> ITEM
+/// ## VECTORIZED LIST -> ITEM
 impl<A: Into<Item>> From<VecList<A>> for Item {
   fn from(vec_list: VecList<A>) -> Self {
     let mut vec = vec![];
@@ -438,14 +697,21 @@ impl<A: Into<Item>> From<VecList<A>> for Item {
   }
 }
 
-// ## FROM: HETEROGENEOUS LIST (2 ELEMENTS) -> ITEM
-impl<A: Into<Item>, B: Into<Item>> From<(A, B)> for Item {
+/// ## HETEROGENEOUS LIST (2 ELEMENTS) -> ITEM
+impl <
+  A: Into<Item>,
+  B: Into<Item>,
+> From<(A, B)> for Item {
   fn from(value: (A, B)) -> Self {
     Item::List(vec![value.0.into(), value.1.into()])
   }
 }
 
-//9.4.2 Localized String Header
+// TODO: HETEROGENEOUS LIST -> ITEM, UP TO 15 ELEMENTS
+// NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
+
+/// ## LOCALIZED STRING HEADER
+/// **Based on SEMI E5§9.4**
 #[repr(u16)]
 #[derive(Clone, Copy, Debug)]
 pub enum LocalizedStringHeader {
@@ -471,14 +737,6 @@ pub enum LocalizedStringHeader {
   //Traditional Chinese
   Big5 = 13,
   EucTw = 14,
-}
-
-#[derive(Clone, Debug)]
-pub struct Message {
-  pub w: bool,
-  pub stream: u8,
-  pub function: u8,
-  pub text: Option<Item>,
 }
 
 /// # ITEMS
@@ -641,31 +899,22 @@ pub mod items {
 
   /// ## ABS
   /// 
-  /// -----------------------------------------------------------------------
-  /// 
-  /// #### Description
-  /// 
   /// Any binary string.
   /// 
-  /// -----------------------------------------------------------------------
+  /// -------------------------------------------------------------------------
   /// 
   /// #### Used By
   /// 
-  /// - [S2F25]
-  /// - [S2F26]
+  /// - [S2F25], [S2F26]
   #[derive(Clone, Debug)]
   pub struct AnyBinaryString(Vec<u8>);
-  singleformat_vec!(AnyBinaryString, u8, Binary, 0..);
+  singleformat_vec!{AnyBinaryString, u8, Binary, 0..}
 
   /// ## ALCD
   /// 
-  /// -----------------------------------------------------------------------
-  /// 
-  /// #### Description
-  /// 
   /// Alarm code byte.
   /// 
-  /// -----------------------------------------------------------------------
+  /// -------------------------------------------------------------------------
   /// 
   /// #### Values
   /// 
@@ -684,96 +933,94 @@ pub mod items {
   ///   - \>8 - Other Categories
   ///   - 9-63 - Reserved
   /// 
-  /// -----------------------------------------------------------------------
+  /// -------------------------------------------------------------------------
   /// 
   /// #### Used By
   /// 
-  /// - [S5F1]
-  /// - [S5F6]
-  /// - [S5F8]
+  /// - [S5F1], [S5F6], [S5F8]
   #[derive(Clone, Copy, Debug)]
   pub struct AlarmCode(pub u8);
-  singleformat!(AlarmCode, u8, Binary);
+  singleformat!{AlarmCode, u8, Binary}
 
   /// ## MDLN
   /// 
-  /// -----------------------------------------------------------------------
-  /// 
-  /// #### Description
-  /// 
   /// Equipment Model Type, 20 bytes max.
   /// 
-  /// -----------------------------------------------------------------------
+  /// -------------------------------------------------------------------------
   /// 
   /// #### Used By
   /// 
-  /// - [S1F2]
-  /// - [S1F13]
-  /// - [S1F14]
-  /// - [S7F22]
-  /// - [S7F23]
-  /// - [S7F26]
-  /// - [S7F31]
-  /// - [S7F39]
-  /// - [S7F43]
+  /// - [S1F2], [S1F13], [S1F14]
+  /// - [S7F22], [S7F23], [S7F26], [S7F31], [S7F39], [S7F43]
+  /// 
+  /// [S1F2]:  crate::messages::s1::EquipmentOnLineData
+  /// [S1F14]: crate::messages::s1::EquipmentCRA
   #[derive(Clone, Debug)]
   pub struct ModelName(Vec<Char>);
-  singleformat_vec!(ModelName, Char, Ascii, 0..=20);
+  singleformat_vec!{ModelName, Char, Ascii, 0..=20}
 
   /// ## SOFTREV
   /// 
-  /// -----------------------------------------------------------------------
-  /// 
-  /// #### Description
-  /// 
   /// Software Revision Code, 20 bytes max.
   /// 
-  /// -----------------------------------------------------------------------
+  /// -------------------------------------------------------------------------
   /// 
   /// #### Used By
   /// 
-  /// - [S1F2]
-  /// - [S1F13]
-  /// - [S1F14]
-  /// - [S7F22]
-  /// - [S7F23]
-  /// - [S7F26]
-  /// - [S7F31]
-  /// - [S7F39]
-  /// - [S7F43]
+  /// - [S1F2], [S1F13], [S1F14]
+  /// - [S7F22], [S7F23], [S7F26], [S7F31], [S7F39], [S7F43]
+  /// 
+  /// [S1F2]:  crate::messages::s1::EquipmentOnLineData
+  /// [S1F14]: crate::messages::s1::EquipmentCRA
   #[derive(Clone, Debug)]
   pub struct SoftwareRevision(Vec<Char>);
-  singleformat_vec!(SoftwareRevision, Char, Ascii, 0..=20);
+  singleformat_vec!{SoftwareRevision, Char, Ascii, 0..=20}
 
   /// ## COMMACK
+  /// 
+  /// Establish Communications Acknowledge Code, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F14]
+  /// 
+  /// [S1F14]: crate::messages::s1::EquipmentCRA
   #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
   #[repr(u8)]
   pub enum CommAck {
     Accepted = 0,
     Denied   = 1,
   }
-  singleformat_enum!(CommAck, u8, Binary);
+  singleformat_enum!{CommAck, u8, Binary}
 
-  /// ## OFLACK
-  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
-  #[repr(u8)]
-  pub enum OffLineAcknowledge {
-    Acknowledge = 0,
-  }
-  singleformat_enum!(OffLineAcknowledge, u8, Binary);
-
-  /// ## ONLACK
-  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
-  #[repr(u8)]
-  pub enum OnLineAcknowledge {
-    Accepted      = 0,
-    NotAllowed    = 1,
-    AlreadyOnLine = 2,
-  }
-  singleformat_enum!(OnLineAcknowledge, u8, Binary);
-
+  /// ## ERRCODE
+  /// 
+  /// Code identifying an error.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F20]
+  /// - [S3F18], [S3F20], [S3F22], [S3F24], [S3F26], [S3F28], [S3F30], [S3F32],
+  ///   [S3F34], [S3F36]
+  /// - [S4F20], [S4F22], [S4F23], [S4F31], [S4F33]
+  /// - [S5F14], [S5F15], [S5F18]
+  /// - [S6F25], [S6F30]
+  /// - [S13F14], [S13F16]
+  /// - [S14F2], [S14F4], [S14F5], [S14F6], [S14F8], [S14F10], [S14F12],
+  ///   [S14F14], [S14F16], [S14F18], [S14F20], [S14F21], [S14F26], [S14F28]
+  /// - [S15F4], [S15F6], [S15F8], [S15F10], [S15F12], [S15F14], [S15F16],
+  ///   [S15F18], [S15F20], [S15F22], [S15F24], [S15F26], [S15F28], [S15F30],
+  ///   [S15F32], [S15F34], [S15F36], [S15F38], [S15F40], [S15F42], [S15F44],
+  ///   [S15F48], [S15F53]
+  /// - [S16F4], [S16F6], [S16F7], [S16F12], [S16F16], [S16F18], [S16F24],
+  ///   [S16F26], [S16F28]
+  /// - [S17F2], [S17F4], [S17F6], [S17F8], [S17F10], [S17F12], [S17F14]
   #[repr(u32)]
-  pub enum ErrCode {
+  pub enum ErrorCode {
     NoError                         = 0,
     UnknownObjectInObjectSpecifier  = 1,
     UnknownTargetObjectType         = 2,
@@ -849,7 +1096,72 @@ pub mod items {
     //65536+: User Defined
   }
 
-  // ## SVID
+  /// ## OFLACK
+  /// 
+  /// Acknowledge code for OFF-LINE request.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F16]
+  /// 
+  /// [S1F16]: crate::messages::s1::OffLineAck
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum OffLineAcknowledge {
+    Acknowledge = 0,
+  }
+  singleformat_enum!{OffLineAcknowledge, u8, Binary}
+
+  /// ## ONLACK
+  /// 
+  /// Acknowledge code for ON-LINE request.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F18]
+  /// 
+  /// [S1F18]: crate::messages::s1::OnLineAck
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum OnLineAcknowledge {
+    Accepted      = 0,
+    NotAllowed    = 1,
+    AlreadyOnLine = 2,
+  }
+  singleformat_enum!{OnLineAcknowledge, u8, Binary}
+
+  /// ## SV
+  /// 
+  /// Status variable value.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F4]
+  /// - [S6F1]
+  /// 
+  /// [S1F4]: crate::messages::s1::SelectedEquipmentStatusData
+  pub enum StatusVariableValue {
+    //TODO: Implement SVID correctly.
+  }
+
+  /// ## SVID
+  /// 
+  /// Status variable ID.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F3], [S1F11], [S1F12]
+  /// - [S2F23]
+  /// 
+  /// [S1F3]: crate::messages::s1::SelectedEquipmentStatusRequest
   pub enum StatusVariableID {
     Binary    (u8 ),
     Signed1   (i8 ),
@@ -861,12 +1173,7 @@ pub mod items {
     Unsigned4 (u32),
     Unsigned8 (u64),
   }
-  multiformat!{
-    StatusVariableID,
-    Binary,
-    Signed1, Signed2, Signed4, Signed8,
-    Unsigned1, Unsigned2, Unsigned4, Unsigned8,
-  }
+  multiformat!{StatusVariableID, Binary, Signed1, Signed2, Signed4, Signed8, Unsigned1, Unsigned2, Unsigned4, Unsigned8}
 }
 
 /// # MESSAGES
@@ -892,10 +1199,10 @@ pub mod messages {
       impl From<$name> for Message {
         fn from(_value: $name) -> Self {
           Message {
-            w:        $w,
             stream:   $stream,
             function: $function,
-            text:     None,
+            w:        $w,
+            body:     None,
           }
         }
       }
@@ -906,7 +1213,7 @@ pub mod messages {
           if message.stream   != $stream   {return Err(WrongStream)}
           if message.function != $function {return Err(WrongFunction)}
           if message.w        != $w        {return Err(WrongReply)}
-          match message.text {
+          match message.body {
             None => Ok($name),
             Some(_item) => Err(WrongFormat),
           }
@@ -935,10 +1242,10 @@ pub mod messages {
       impl From<$name> for Message {
         fn from(value: $name) -> Self {
           Message {
-            w:        $w,
             stream:   $stream,
             function: $function,
-            text:     Some(value.0.into()),
+            w:        $w,
+            body:     Some(value.0.into()),
           }
         }
       }
@@ -949,7 +1256,7 @@ pub mod messages {
           if message.stream   != $stream   {return Err(WrongStream)}
           if message.function != $function {return Err(WrongFunction)}
           if message.w        != $w        {return Err(WrongReply)}
-          match message.text {
+          match message.body {
             Some(item) => {Ok(Self(item.try_into()?))},
             None => Err(WrongFormat),
           }
@@ -967,14 +1274,10 @@ pub mod messages {
   /// equipment, including its current mode, depletion of various consumable
   /// items, and the status of transfer operations.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Complete filling out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s1 {
     use crate::*;
-    use crate::Error::{self, *};
+    use crate::Error::*;
     use crate::items::*;
 
     /// ## S1F1
@@ -1015,7 +1318,7 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - 0
-    pub struct HostOnLineData(());
+    pub struct HostOnLineData(pub ());
     message_data!{HostOnLineData, false, 1, 2}
 
     /// ## S1F2
@@ -1093,9 +1396,11 @@ pub mod messages {
     /// A zero-length item for a given [SV] means that the [SVID] does not
     /// exist.
     /// 
+    /// [SV]:   StatusVariableValue
     /// [SVID]: StatusVariableID
-    pub struct SelectedEquipmentStatusData(());
-    message_data!{SelectedEquipmentStatusData, false, 1, 4}
+    pub struct SelectedEquipmentStatusData(pub VecList<StatusVariableValue>);
+    //message_data!{SelectedEquipmentStatusData, false, 1, 4}
+    //TODO: Uncomment macro invocation after implementing SVID.
 
     /// ## S1F13
     /// 
@@ -1128,7 +1433,7 @@ pub mod messages {
     /// 
     /// [S1F13]: HostCR
     /// [S1F14]: EquipmentCRA
-    pub struct HostCR(());
+    pub struct HostCR(pub ());
     message_data!{HostCR, true, 1, 13}
 
     /// ## S1F14
@@ -1249,6 +1554,7 @@ pub mod messages {
     pub struct OnLineAck(pub OnLineAcknowledge);
     message_data!{OnLineAck, false, 1, 16}
   }
+  //TODO: Complete filling out stream's contents.
 
   /// # STREAM 2: EQUIPMENT CONTROL AND DIAGNOSTICS
   /// **Based on SEMI E5§10.6**
@@ -1268,10 +1574,6 @@ pub mod messages {
   /// 
   /// This functionality continues in [Stream 17].
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   /// [Stream 4]: crate::messages::s4
   /// [Stream 8]: crate::messages::s8
@@ -1279,6 +1581,7 @@ pub mod messages {
   /// [Stream 13]: crate::messages::s13
   /// [Stream 17]: crate::messages::s17
   pub mod s2 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 3: MATERIAL STATUS
   /// **Based on SEMI E5§10.7**
@@ -1289,12 +1592,9 @@ pub mod messages {
   /// to material, including carriers and material-in-process,
   /// time-to-completion information, and extraordinary material circumstances.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s3 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 4: MATERIAL CONTROL
   /// **Based on SEMI E5§10.8**
@@ -1304,12 +1604,9 @@ pub mod messages {
   /// [Message]s which deal with the original material control protocol and the
   /// newer protocol which supports [SEMI E32].
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s4 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 5: EXCEPTION HANDLING
   /// **Based on SEMI E5§10.9**
@@ -1349,13 +1646,10 @@ pub mod messages {
   /// [Message]s [S5F9] through [S5F15] provide extended capabilities for
   /// exception handling.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   /// [Stream 6]: crate::messages::s6
   pub mod s5 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 6: DATA COLLECTION
   /// **Based on SEMI E5§10.10**
@@ -1365,12 +1659,9 @@ pub mod messages {
   /// [Message]s which deal with in-process measurement and equipment
   /// monitoring.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s6 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 7: PROCESS PROGRAM MANAGEMENT
   /// **Based on SEMI E5§10.11**
@@ -1387,12 +1678,9 @@ pub mod messages {
   /// between the process program and the material to be processed with that
   /// program.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s7 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 8: CONTROL PROGRAM TRANSFER
   /// **Based on SEMI E5§10.12**
@@ -1403,14 +1691,12 @@ pub mod messages {
   /// to perform the control function or to execute the transmitted Process
   /// Program.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s8 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 9: SYSTEM ERRORS
+  /// **Based on SEMI E5§10.13**
   /// 
   /// -------------------------------------------------------------------------
   /// 
@@ -1421,12 +1707,9 @@ pub mod messages {
   /// The messages indicate either a Message Fault or a Communications Fault
   /// has occurred but do not indicate a Communications Failure has occurred.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s9 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 10: TERMINAL SERVICES
   /// **Based on SEMI E5§10.14**
@@ -1443,12 +1726,9 @@ pub mod messages {
   /// Management of human response times to information displayed on terminals
   /// is the responsibility of the host.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s10 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 11: DELETED
   /// **Based on SEMI E5§10.15**
@@ -1487,14 +1767,10 @@ pub mod messages {
   /// associated binning information.
   /// - Coordinate - An X/Y location and bin code for die on the wafer.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out more documentation here.
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s12 {}
+  //TODO: Fill out more documentation here.
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 13: DATA SET TRANSFER
   /// **Based on SEMI E5§10.17**
@@ -1505,14 +1781,10 @@ pub mod messages {
   /// 
   /// It is not intended to provide a general file access mechanism.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out more documentation here.
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s13 {}
+  //TODO: Fill out more documentation here.
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 14: OBJECT SERVICES
   /// **Based on SEMI E5§10.18**
@@ -1523,12 +1795,9 @@ pub mod messages {
   /// including obtaining information about objects and setting values for an
   /// object.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s14 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 15: RECIPE MANAGEMENT
   /// **Based on SEMI E5§10.19**
@@ -1548,12 +1817,9 @@ pub mod messages {
   /// whole, or the application of the recipe, and consists of a name/value
   /// pair.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s15 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 16: PROCESSING MANAGEMENT
   /// **Based on SEMI E5§10.20**
@@ -1581,12 +1847,9 @@ pub mod messages {
   /// is logically related from the host's viewpoint. It also provides
   /// mechanisms for specifying the destination for processed material.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s16 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 17: EQUIPMENT CONTROL AND DIAGNOSTICS
   /// **Based on SEMI E5§10.21**
@@ -1606,10 +1869,6 @@ pub mod messages {
   /// 
   /// This is a continuation of [Stream 2].
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   /// [Stream 2]: crate::messages::s2
   /// [Stream 4]: crate::messages::s4
@@ -1617,6 +1876,7 @@ pub mod messages {
   /// [Stream 10]: crate::messages::s10
   /// [Stream 13]: crate::messages::s13
   pub mod s17 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 18: SUBSYSTEM CONTROL AND DATA
   /// **Based on SEMI E5§10.22**
@@ -1629,12 +1889,9 @@ pub mod messages {
   /// Compared to similar mesages exchanged between equipment and host,
   /// subsystem messages are less complex.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   pub mod s18 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 19: RECIPE AND PARAMETER MANAGEMENT
   /// **Based on SEMI E5§10.23**
@@ -1668,23 +1925,20 @@ pub mod messages {
   /// - TransferContainer - A group of PDEs or PDEheaders bound together as a
   /// single [Stream 13] Data Set for transfer.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// TODO: Fill out stream's contents.
-  /// 
   /// [Message]: crate::Message
   /// [Stream 13]: crate::messages::s13
   pub mod s19 {}
+  //TODO: Fill out stream's contents.
 
   /// # STREAM 20: RECIPE MANAGEMENT SYSTEM
   /// 
   /// The definition of this stream exists in a newer version of the standard
-  /// as compared to [SEMI E5]-0712.
+  /// as compared to SEMI E5-0712.
   pub mod s20 {}
 
   /// # STREAM 21: ITEM TRANSFER
   /// 
   /// The definition of this stream exists in a newer version of the standard
-  /// as compared to [SEMI E5]-0712.
+  /// as compared to SEMI E5-0712.
   pub mod s21 {}
 }
