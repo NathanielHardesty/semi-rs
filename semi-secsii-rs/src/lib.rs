@@ -22,6 +22,9 @@
 //! 
 //! [SECS-II]:  crate
 
+#![crate_name = "secs_ii"]
+#![crate_type = "lib"]
+
 #![feature(ascii_char)]
 #![allow(clippy::unusual_byte_groupings)]
 #![allow(clippy::collapsible_match)]
@@ -401,8 +404,12 @@ impl From<Item> for Vec<u8> {
           vec.push(ascii as u8);
         }
       },
-      Item::Jis8(_) => todo!(),
-      Item::Localized(_, _) => todo!(),
+      Item::Jis8(_jis8_vec) => {
+        todo!()
+      },
+      Item::Localized(_widechar_format, _widechar_vec) => {
+        todo!()
+      },
       Item::Signed8(i8_vec) => {
         //Length
         let len = i8_vec.len() * 8;
@@ -666,6 +673,32 @@ impl <
   }
 }
 
+/// ## ITEM -> HETEROGENEOUS LIST (3 ELEMENTS)
+impl <
+  A: TryFrom<Item, Error = Error>,
+  B: TryFrom<Item, Error = Error>,
+  C: TryFrom<Item, Error = Error>,
+> TryFrom<Item> for (A, B, C) {
+  type Error = Error;
+
+  fn try_from(item: Item) -> Result<Self, Self::Error> {
+    match item {
+      Item::List(list) => {
+        if list.len() == 3 {
+          Ok((
+            list[0].clone().try_into()?,
+            list[1].clone().try_into()?,
+            list[2].clone().try_into()?,
+          ))
+        } else {
+          Err(Error::WrongFormat)
+        }
+      },
+      _ => Err(Error::WrongFormat),
+    }
+  }
+}
+
 // TODO: ITEM -> HETEROGENEOUS LIST, UP TO 15 ELEMENTS
 // NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
 
@@ -703,7 +736,25 @@ impl <
   B: Into<Item>,
 > From<(A, B)> for Item {
   fn from(value: (A, B)) -> Self {
-    Item::List(vec![value.0.into(), value.1.into()])
+    Item::List(vec![
+      value.0.into(),
+      value.1.into(),
+    ])
+  }
+}
+
+/// ## HETEROGENEOUS LIST (3 ELEMENTS) -> ITEM
+impl <
+  A: Into<Item>,
+  B: Into<Item>,
+  C: Into<Item>,
+> From<(A, B, C)> for Item {
+  fn from(value: (A, B, C)) -> Self {
+    Item::List(vec![
+      value.0.into(),
+      value.1.into(),
+      value.2.into(),
+    ])
   }
 }
 
@@ -751,7 +802,6 @@ pub mod items {
   macro_rules! singleformat {
     (
       $name:ident,
-      $type:ident,
       $format:ident
     ) => {
       impl From<$name> for Item {
@@ -897,6 +947,45 @@ pub mod items {
     }
   }
 
+  /// ## DATA ITEM MACRO: MULTIPLE ACCEPTED FORMATS, ANY VECTOR LENGTH
+  macro_rules! multiformat_vec {
+    (
+      $name:ident
+      ,$format:ident
+      $(,$formats:ident)*
+      $(,)?
+    ) => {
+      impl From<$name> for Item {
+        fn from(value: $name) -> Item {
+          match value {
+            $name::$format(vec) => Item::$format(vec),
+            $(
+              $name::$formats(vec) => Item::$formats(vec),
+            )*
+          }
+          
+        }
+      }
+      impl TryFrom<Item> for $name {
+        type Error = Error;
+
+        fn try_from(value: Item) -> Result<Self, Self::Error> {
+          match value {
+            Item::$format(vec) => {
+              Ok(Self::$format(vec))
+            },
+            $(
+              Item::$formats(vec) => {
+                Ok(Self::$formats(vec))
+              },
+            )*
+            _ => Err(WrongFormat),
+          }
+        }
+      }
+    }
+  }
+
   /// ## ABS
   /// 
   /// Any binary string.
@@ -940,7 +1029,7 @@ pub mod items {
   /// - [S5F1], [S5F6], [S5F8]
   #[derive(Clone, Copy, Debug)]
   pub struct AlarmCode(pub u8);
-  singleformat!{AlarmCode, u8, Binary}
+  singleformat!{AlarmCode, Binary}
 
   /// ## MDLN
   /// 
@@ -1134,6 +1223,18 @@ pub mod items {
   }
   singleformat_enum!{OnLineAcknowledge, u8, Binary}
 
+  /// ## SFCD
+  /// 
+  /// Status form code, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F5], [S1F7]
+  pub struct StatusFormCode(pub u8);
+  singleformat!{StatusFormCode, Binary}
+
   /// ## SV
   /// 
   /// Status variable value.
@@ -1147,7 +1248,30 @@ pub mod items {
   /// 
   /// [S1F4]: crate::messages::s1::SelectedEquipmentStatusData
   pub enum StatusVariableValue {
-    //TODO: Implement SVID correctly.
+    List      (Vec<Item>),
+    Binary    (Vec<u8  >),
+    Boolean   (Vec<bool>),
+    Ascii     (Vec<Char>),
+    Jis8      (Vec<u8  >),
+    Signed1   (Vec<i8  >),
+    Signed2   (Vec<i16 >),
+    Signed4   (Vec<i32 >),
+    Signed8   (Vec<i64 >),
+    Unsigned1 (Vec<u8  >),
+    Unsigned2 (Vec<u16 >),
+    Unsigned4 (Vec<u32 >),
+    Unsigned8 (Vec<u64 >),
+    Float4    (Vec<f32 >),
+    Float8    (Vec<f64 >),
+  }
+  multiformat_vec!{
+    StatusVariableValue,
+    List,
+    Binary, Boolean,
+    Ascii, Jis8,
+    Signed1, Signed2, Signed4, Signed8,
+    Unsigned1, Unsigned2, Unsigned4, Unsigned8,
+    Float4, Float8,
   }
 
   /// ## SVID
@@ -1173,7 +1297,12 @@ pub mod items {
     Unsigned4 (u32),
     Unsigned8 (u64),
   }
-  multiformat!{StatusVariableID, Binary, Signed1, Signed2, Signed4, Signed8, Unsigned1, Unsigned2, Unsigned4, Unsigned8}
+  multiformat!{
+    StatusVariableID,
+    Binary,
+    Signed1, Signed2, Signed4, Signed8,
+    Unsigned1, Unsigned2, Unsigned4, Unsigned8,
+  }
 }
 
 /// # MESSAGES
@@ -1224,7 +1353,7 @@ pub mod messages {
 
   /// ## MESSAGE MACRO: DATA
   /// 
-  /// To be used with particular messages that contain data.
+  /// To be used with particular messages that contain arbitrary data.
   /// 
   /// -------------------------------------------------------------------------
   /// 
@@ -1258,6 +1387,49 @@ pub mod messages {
           if message.w        != $w        {return Err(WrongReply)}
           match message.body {
             Some(item) => {Ok(Self(item.try_into()?))},
+            None => Err(WrongFormat),
+          }
+        }
+      }
+    }
+  }
+
+  /// ## MESSAGE MACRO: ITEM
+  /// 
+  /// To be used with particular messages that contain just an Item.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// Expands into two impls:
+  /// 
+  /// - From<$name> for Message
+  /// - TryFrom<Message> for $name
+  macro_rules! message_item {
+    (
+      $name:ident,
+      $w:expr,
+      $stream:expr,
+      $function:expr
+    ) => {
+      impl From<$name> for Message {
+        fn from(value: $name) -> Self {
+          Message {
+            stream:   $stream,
+            function: $function,
+            w:        $w,
+            body:     Some(value.0.into()),
+          }
+        }
+      }
+      impl TryFrom<Message> for $name {
+        type Error = Error;
+
+        fn try_from(message: Message) -> Result<Self, Self::Error> {
+          if message.stream   != $stream   {return Err(WrongStream)}
+          if message.function != $function {return Err(WrongFunction)}
+          if message.w        != $w        {return Err(WrongReply)}
+          match message.body {
+            Some(item) => {Ok(Self(item))},
             None => Err(WrongFormat),
           }
         }
@@ -1399,8 +1571,123 @@ pub mod messages {
     /// [SV]:   StatusVariableValue
     /// [SVID]: StatusVariableID
     pub struct SelectedEquipmentStatusData(pub VecList<StatusVariableValue>);
-    //message_data!{SelectedEquipmentStatusData, false, 1, 4}
-    //TODO: Uncomment macro invocation after implementing SVID.
+    message_data!{SelectedEquipmentStatusData, false, 1, 4}
+
+    /// ## S1F5
+    /// 
+    /// **Formatted Status Request (FSR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// A request for the equipment to report the status according to a
+    /// predefined fixed format.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [SFCD]
+    /// 
+    /// [SFCD]: StatusFormCode
+    pub struct FormattedStatusRequest(pub StatusFormCode);
+    message_data!{FormattedStatusRequest, true, 1, 5}
+
+    /// ## S1F6
+    /// 
+    /// **Formatted Status Data (FSD)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// The value of status variables according to the [SFCD].
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Depends on the structure specified by the status form.
+    /// 
+    /// A zero-length item means that no report can be made.
+    /// 
+    /// [SFCD]: StatusFormCode
+    pub struct FormattedStatusData(pub Item);
+    message_item!{FormattedStatusData, false, 1, 6}
+
+    /// ## S1F7
+    /// 
+    /// **Fixed Form Request (FFR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// A request for the form used in [S1F6].
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [SFCD]
+    /// 
+    /// [S1F6]: FormattedStatusData
+    /// [SFCD]: StatusFormCode
+    pub struct FixedFormRequest(pub StatusFormCode);
+    message_data!{FixedFormRequest, true, 1, 7}
+
+    /// ## S1F8
+    /// 
+    /// **Fixed Form Data (FFD)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// The form is returned with the name of each value and the data format
+    /// item having a zero length as a two-element list in the place of each
+    /// single item to be returned in [S1F6].
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Depends on the form being specified.
+    /// 
+    /// A zero-length item means the form is unavailable.
+    /// 
+    /// [S1F6]: FormattedStatusData
+    pub struct FixedFormData(pub Item);
+    message_item!{FixedFormData, false, 1, 8}
+
+    /// ## S1F9
+    /// 
+    /// **Material Transfer Status Request (TSR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// A request to report the status of all material ports to the host.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Header only.
+    pub struct MaterialTransferStatusRequest;
+    message_headeronly!{MaterialTransferStatusRequest, true, 1, 9}
 
     /// ## S1F13
     /// 
