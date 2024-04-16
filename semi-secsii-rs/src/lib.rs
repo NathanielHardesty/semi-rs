@@ -329,9 +329,9 @@ pub struct VecList<T>(pub Vec<T>);
 
 /// ## ITEM -> BINARY DATA
 impl From<Item> for Vec<u8> {
-  fn from(val: Item) -> Self {
+  fn from(item: Item) -> Self {
     let mut vec = vec![];
-    match val {
+    match item {
       Item::List(item_vec) => {
         //Length
         let len = item_vec.len();
@@ -592,6 +592,15 @@ impl From<Item> for Vec<u8> {
       },
     }
     vec
+  }
+}
+
+/// ## BINARY DATA -> ITEM
+impl TryFrom<Vec<u8>> for Item {
+  type Error = Error;
+
+  fn try_from(_value: Vec<u8>) -> Result<Self, Self::Error> {
+    todo!()
   }
 }
 
@@ -873,7 +882,6 @@ pub mod items {
   macro_rules! singleformat_enum {
     (
       $name:ident,
-      $type:ident,
       $format:ident
     ) => {
       impl From<$name> for Item {
@@ -1082,7 +1090,7 @@ pub mod items {
     Accepted = 0,
     Denied   = 1,
   }
-  singleformat_enum!{CommAck, u8, Binary}
+  singleformat_enum!{CommAck, Binary}
 
   /// ## ERRCODE
   /// 
@@ -1201,7 +1209,7 @@ pub mod items {
   pub enum OffLineAcknowledge {
     Acknowledge = 0,
   }
-  singleformat_enum!{OffLineAcknowledge, u8, Binary}
+  singleformat_enum!{OffLineAcknowledge, Binary}
 
   /// ## ONLACK
   /// 
@@ -1221,7 +1229,7 @@ pub mod items {
     NotAllowed    = 1,
     AlreadyOnLine = 2,
   }
-  singleformat_enum!{OnLineAcknowledge, u8, Binary}
+  singleformat_enum!{OnLineAcknowledge, Binary}
 
   /// ## SFCD
   /// 
@@ -1303,6 +1311,45 @@ pub mod items {
     Signed1, Signed2, Signed4, Signed8,
     Unsigned1, Unsigned2, Unsigned4, Unsigned8,
   }
+
+  /// ## TSIP
+  /// 
+  /// Transfer status of input port, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F10]
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum TransferStatusInputPort {
+    Idle            = 1,
+    Prep            = 2,
+    TrackOn         = 3,
+    StuckInReceiver = 4,
+  }
+  singleformat_enum!{TransferStatusInputPort, Binary}
+
+  /// ## TSOP
+  /// 
+  /// Transfer status of output port, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F10]
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum TransferStatusOutputPort {
+    Idle          = 1,
+    Prep          = 2,
+    TrackOn       = 3,
+    StuckInSender = 4,
+    Completed     = 5,
+  }
+  singleformat_enum!{TransferStatusOutputPort, Binary}
 }
 
 /// # MESSAGES
