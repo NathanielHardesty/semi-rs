@@ -536,7 +536,7 @@ impl PrimitiveClient {
     let (tx_sender, tx_receiver) = channel::<HsmsMessage>();
     //Start RX Thread
     let rx_clone: Arc<PrimitiveClient> = self.clone();
-    let tx_sender_clone = tx_sender.clone();
+    let tx_sender_clone: Sender<HsmsMessage> = tx_sender.clone();
     thread::spawn(move || {rx_clone.rx_handle(rx_sender.clone(), tx_sender_clone)});
     //Start TX Thread
     let tx_clone: Arc<PrimitiveClient> = self.clone();

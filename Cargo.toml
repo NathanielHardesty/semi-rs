@@ -1,9 +1,9 @@
 [workspace]
 
 members = [
-  "semi-gem-rs",
-  "semi-hsms-rs",
-  "semi-secsii-rs",
+  "semi-e5",
+  "semi-e30",
+  "semi-e37",
   "example",
 ]
 
