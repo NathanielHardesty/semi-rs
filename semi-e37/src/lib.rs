@@ -238,6 +238,17 @@ pub enum SelectionState {
   /// [Select Procedure]: GenericClient::select
   NotSelected,
 
+  /// ### AWAITING REPLY
+  /// **Based on SEMI E37-1109§5.5.2**
+  /// 
+  /// In this state, the [Client] has initiated the [Select Procedure], but has
+  /// not yet received a reply. Although not outlined within the standard, this
+  /// intermediate state is heavily implied to meaningfully exist.
+  /// 
+  /// [Client]:           GenericClient
+  /// [Select Procedure]: GenericClient::select
+  AwaitingReply(u16),
+
   /// ### SELECTED
   /// **Based on SEMI E37-1109§5.5.2.2**
   /// 
@@ -1094,7 +1105,7 @@ impl GenericClient {
               }
             },
             //NOT SELECTED
-            SelectionState::NotSelected => {
+            _ => {
               //Reject.req
               if tx_sender.send(HsmsMessage::RejectRequest(RejectRequest {
                 session_id: data_message.session_id,
@@ -1108,21 +1119,41 @@ impl GenericClient {
         //Select.req
         HsmsMessage::SelectRequest(select_request) => {
           let mut select = self.selection_state.write().unwrap();
-          if let SelectionState::Selected(_session_id) = select.deref() {
-            //Select.rsp: Already Active
-            if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
-              session_id: select_request.session_id,
-              status: SelectStatus::AlreadyActive as u8,
-              system: select_request.system,
-            })).is_err() {break};
-          } else {
-            //Select.rsp: Success
-            if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
-              session_id: select_request.session_id,
-              status: SelectStatus::Success as u8,
-              system: select_request.system,
-            })).is_err() {break};
-            *select.deref_mut() = SelectionState::Selected(select_request.session_id)
+          match select.deref() {
+            SelectionState::NotSelected => {
+              //Select.rsp: Success
+              if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
+                session_id: select_request.session_id,
+                status: SelectStatus::Success as u8,
+                system: select_request.system,
+              })).is_err() {break};
+              *select.deref_mut() = SelectionState::Selected(select_request.session_id)
+            },
+            SelectionState::AwaitingReply(session_id) => {
+              if select_request.session_id == *session_id {
+                //Select.rsp: Success
+                if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
+                  session_id: select_request.session_id,
+                  status: SelectStatus::Success as u8,
+                  system: select_request.system,
+                })).is_err() {break};
+              } else {
+                //Select.rsp: Already Active
+                if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
+                  session_id: select_request.session_id,
+                  status: SelectStatus::AlreadyActive as u8,
+                  system: select_request.system,
+                })).is_err() {break};
+              }
+            },
+            SelectionState::Selected(_session_id) => {
+              //Select.rsp: Already Active
+              if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
+                session_id: select_request.session_id,
+                status: SelectStatus::AlreadyActive as u8,
+                system: select_request.system,
+              })).is_err() {break};
+            },
           }
         },
         //Select.rsp
@@ -1372,10 +1403,50 @@ impl GenericClient {
   /// [T6]:                   ParameterSettings::t6
   pub fn select(
     self: &Arc<Self>,
-    _session_id: u16,
+    session_id: u16,
   ) -> JoinHandle<Result<(), ConnectionStateTransition>> {
     println!("GenericClient::select");
-    todo!()
+    let clone: Arc<GenericClient> = self.clone();
+    thread::spawn(move || {
+      let select = clone.selection_state.read().unwrap();
+      match select.deref() {
+        SelectionState::NotSelected => {
+          let mut select = clone.selection_state.write().unwrap();
+          *select.deref_mut() = SelectionState::AwaitingReply(session_id);
+          match clone.tx_handle(
+            //Select.req
+            HsmsMessage::SelectRequest(SelectRequest {
+              session_id,
+              system: 0, //TODO: FIGURE OUT HOW TO FIX THE SYSTEM BYTES THING
+            }),
+            true,
+            clone.primitive_client.parameter_settings.t6,
+          ) {
+            Some(rx_message) => {
+              match rx_message {
+                HsmsMessage::SelectResponse(select_response) => {
+                  if select_response.session_id == session_id {
+                    //Selected
+                    *select.deref_mut() = SelectionState::Selected(session_id);
+                    Ok(())
+                  } else {
+                    //Reject?
+                    todo!()
+                  }
+                },
+                //Reject?
+                _ => todo!(),
+              }
+            },
+            None => {
+              clone.disconnect();
+              Err(ConnectionStateTransition::ConnectedToNotConnected)
+            },
+          }
+        },
+        _ => Err(ConnectionStateTransition::None),
+      }
+    })
   }
 
   /// ### DESELECT PROCEDURE (TODO)
