@@ -6,21 +6,26 @@ use hsms::{ConnectionMode, ConnectionStateTransition, GenericClient, ParameterSe
 use secs_ii::{Message, Item};
 
 fn main() {
-  test_host();
+  let equipment = thread::spawn(|| {test_equipment();});
+  let host = thread::spawn(|| {test_host();});
+  let _ = equipment.join();
+  let _ = host.join();
 }
 
 fn test_host() {
   // CLIENT
-  let mut parameter_settings: ParameterSettings = ParameterSettings::default();
-  parameter_settings.connect_mode = ConnectionMode::Active;
+  let parameter_settings: ParameterSettings = ParameterSettings {
+    connect_mode: ConnectionMode::Active,
+    ..Default::default()
+  };
   let client: Arc<GenericClient> = GenericClient::new(parameter_settings);
-  let rx_message: Receiver<Message> = client.connect("127.0.0.1:5000").unwrap();
+  let _: Receiver<Message> = client.connect("127.0.0.1:5000").unwrap();
   thread::sleep(Duration::from_millis(5000));
   client.select(0).join().unwrap().unwrap();
   loop {
     thread::sleep(Duration::from_secs(2));
     let link_result: Result<(), ConnectionStateTransition> = client.linktest().join().unwrap();
-    println!("LINK TEST {:?}", link_result);
+    println!("HOST LINK TEST {:?}", link_result);
     if link_result.is_err() {break}
   }
 }
@@ -161,7 +166,7 @@ fn test_equipment() {
       //LINK TEST
       thread::sleep(Duration::from_secs(2));
       let link_result: Result<(), ConnectionStateTransition> = tx_client.linktest().join().unwrap();
-      println!("LINK TEST {:?}", link_result);
+      println!("EQUIPMENT LINK TEST {:?}", link_result);
       if link_result.is_err() {break}
     }
   });

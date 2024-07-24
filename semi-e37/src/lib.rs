@@ -55,8 +55,7 @@
 //! 
 //! ## TO BE DONE
 //! 
-//! - [Generic Client] - [Generic Select Procedure]
-//! - [Generic Client] - "Simultaneous Select Procedure"
+//! - Fix Documentation Links
 //! - [Generic Client] - [Generic Deselect Procedure]
 //! - [Generic Client] - "Simultaneous Deselect Procedure"
 //! - [Generic Client] - [Generic Separate Procedure]
@@ -1486,56 +1485,59 @@ impl GenericClient {
       match clone.primitive_client.deref().connection_state.read().unwrap().deref() {
         // IS: CONNECTED
         ConnectionState::Connected(_) => {
-          match clone.selection_state.read().unwrap().deref() {
-            // IS: NOT SELECTED
-            SelectionState::NotSelected => {
-              let mut select = clone.selection_state.write().unwrap();
-              *select.deref_mut() = SelectionState::AwaitingReply(session_id);
-              // TX: Select.req
-              match clone.tx_handle(
-                HsmsMessage {
-                  session_id,
-                  system: 0,
-                  contents: HsmsMessageContents::SelectRequest,
-                },
-                true,
-                clone.primitive_client.parameter_settings.t6,
-              ) {
-                // RX: Valid
-                Some(rx_message) => {
-                  match rx_message.contents {
-                    // RX: Select.rsp
-                    HsmsMessageContents::SelectResponse(select_status) => {
-                      // RX: Select.rsp Success
-                      if rx_message.session_id == session_id && select_status == SelectStatus::Success as u8 {
-                        // TO: SELECTED
-                        *select.deref_mut() = SelectionState::Selected(session_id);
-                        Ok(())
-                      }
-                      // RX: Select.rsp Failure
-                      else {
-                        *select.deref_mut() = SelectionState::NotSelected;
-                        Err(ConnectionStateTransition::None)
-                      }
-                    },
-                    // RX: Unknown
-                    _ => {
-                      *select.deref_mut() = SelectionState::NotSelected;
-                      Err(ConnectionStateTransition::None)
-                    },
+          {
+            let mut selection_state = clone.selection_state.write().unwrap();
+            match *selection_state {
+              // IS: NOT SELECTED
+              SelectionState::NotSelected => {
+                // TO: AWAITING REPLY
+                *selection_state = SelectionState::AwaitingReply(session_id);
+              },
+              // IS: SELECTED
+              _ => {return Err(ConnectionStateTransition::None)},
+            }
+          }
+          // TX: Select.req
+          match clone.tx_handle(
+            HsmsMessage {
+              session_id,
+              system: 0,
+              contents: HsmsMessageContents::SelectRequest,
+            },
+            true,
+            clone.primitive_client.parameter_settings.t6,
+          ) {
+            // RX: Valid
+            Some(rx_message) => {
+              match rx_message.contents {
+                // RX: Select.rsp
+                HsmsMessageContents::SelectResponse(select_status) => {
+                  // RX: Select.rsp Success
+                  if rx_message.session_id == session_id && select_status == SelectStatus::Success as u8 {
+                    // TO: SELECTED
+                    *clone.selection_state.write().unwrap() = SelectionState::Selected(session_id);
+                    Ok(())
+                  }
+                  // RX: Select.rsp Failure
+                  else {
+                    *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
+                    Err(ConnectionStateTransition::None)
                   }
                 },
-                // RX: Invalid
-                None => {
-                  // TO: NOT CONNECTED
-                  *select.deref_mut() = SelectionState::NotSelected;
-                  clone.disconnect();
-                  Err(ConnectionStateTransition::ConnectedToNotConnected)
+                // RX: Unknown
+                _ => {
+                  *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
+                  Err(ConnectionStateTransition::None)
                 },
               }
             },
-            // IS: SELECTED
-            _ => Err(ConnectionStateTransition::None),
+            // RX: Invalid
+            None => {
+              // TO: NOT CONNECTED
+              *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
+              clone.disconnect();
+              Err(ConnectionStateTransition::ConnectedToNotConnected)
+            },
           }
         },
         // IS: NOT CONNECTED
