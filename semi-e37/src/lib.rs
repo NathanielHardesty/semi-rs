@@ -10,8 +10,9 @@
 //! 
 //! [HSMS] is a Session Protocol designed to facilitate communications between
 //! semiconductor equipment over TCP/IP, particularly for sending data
-//! formatted with the SECS-II ([SEMI E5]) Presentation Protocol and understood
-//! by the GEM ([SEMI E30]) Application Protocol (together known as SECS/GEM).
+//! formatted with the SECS-II ([SEMI E5]) Presentation Protocol and
+//! understood by the GEM ([SEMI E30]) Application Protocol (together known as
+//! SECS/GEM).
 //! 
 //! ---------------------------------------------------------------------------
 //! 
@@ -680,14 +681,14 @@ impl GenericClient {
   /// [T5]:                ParameterSettings::t5
   pub fn connect(
     self: &Arc<Self>,
-    entity: &str
-  ) -> Result<Receiver<DataMessage>, Error> {
+    entity: &str,
+  ) -> Result<Receiver<secs_ii::Message>, Error> {
     println!("GenericClient::connect");
     //Connect Primitive
     let (rx_receiver, tx_sender) = self.primitive_client.connect(entity)?;
     *self.tx_sender.lock().unwrap().deref_mut() = Some(tx_sender.clone());
     //Create Channel
-    let (data_sender, data_receiver) = channel::<DataMessage>();
+    let (data_sender, data_receiver) = channel::<secs_ii::Message>();
     //Start RX Thread
     let clone: Arc<GenericClient> = self.clone();
     thread::spawn(move || {clone.rx_handle(rx_receiver, tx_sender, data_sender)});
@@ -870,12 +871,11 @@ impl PrimitiveClient {
             Err(reject_reason) => {
               //Reject.req
               if tx_sender.send(
-                HsmsMessage::RejectRequest(RejectRequest{
-                  session_id   : rx_header.session_id,
-                  message_type : rx_header.session_type,
-                  reason_code  : reject_reason as u8,
-                  system       : rx_header.system,
-                })
+                HsmsMessage {
+                  session_id: rx_header.session_id,
+                  system: rx_header.system,
+                  contents: HsmsMessageContents::RejectRequest(rx_header.session_type, reject_reason as u8),
+                }
               ).is_err() {break}
             },
           }
@@ -1068,152 +1068,202 @@ impl GenericClient {
     self: &Arc<Self>,
     rx_receiver: Receiver<HsmsMessage>,
     tx_sender: Sender<HsmsMessage>,
-    rx_sender: Sender<DataMessage>,
+    rx_sender: Sender<secs_ii::Message>,
   ) {
     println!("GenericClient::rx_handle start");
-    for hsms_message in rx_receiver {
-      match hsms_message {
-        //Data Message
-        HsmsMessage::DataMessage(data_message) => {
+    for rx_message in rx_receiver {
+      match rx_message.contents {
+        // RX: Data Message
+        HsmsMessageContents::DataMessage(data) => {
           match self.selection_state.read().unwrap().deref() {
-            //SELECTED
+            // IS: SELECTED
             SelectionState::Selected(_session_id) => {
-              if data_message.function % 2 == 1 { //Primary Data Message
-                if rx_sender.send(data_message).is_err() {break}
-              } else { //Response Data Message
+              // RX: Primary Data Message
+              if data.function % 2 == 1 {
+                // INBOX: New Transaction
+                if rx_sender.send(data).is_err() {break}
+              }
+              // RX: Response Data Message
+              else {
+                // OUTBOX: Find Transaction
                 let mut outbox = self.outbox.lock().unwrap();
                 let mut optional_transaction: Option<u32> = None;
                 for (outbox_id, (system, session_type, _)) in outbox.deref() {
-                  if *system == data_message.system && *session_type == SessionType::DataMessage {
+                  if *system == rx_message.system && *session_type == SessionType::DataMessage {
                     optional_transaction = Some(*outbox_id);
                     break;
                   }
                 }
+                // OUTBOX: Transaction Found
                 if let Some(transaction) = optional_transaction {
-                  //Outbox
+                  // OUTBOX: Complete Transaction
                   let (_, _, sender) = outbox.deref_mut().remove(&transaction).unwrap();
-                  sender.send(Some(HsmsMessage::DataMessage(data_message))).unwrap();
-                } else {
-                  //Reject.req
-                  if tx_sender.send(HsmsMessage::RejectRequest(RejectRequest {
-                    session_id: data_message.session_id,
-                    message_type: 0,
-                    reason_code: RejectReason::TransactionNotOpen as u8,
-                    system: data_message.system
-                  })).is_err() {break}
+                  sender.send(Some(HsmsMessage{
+                    session_id: rx_message.session_id,
+                    system: rx_message.system,
+                    contents: HsmsMessageContents::DataMessage(data),
+                  })).unwrap();
+                }
+                // OUTBOX: Transaction Not Found
+                else {
+                  // TX: Reject.req
+                  if tx_sender.send(HsmsMessage {
+                    session_id: rx_message.session_id,
+                    system: rx_message.system,
+                    contents: HsmsMessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
+                  }).is_err() {break}
                 }
               }
             },
-            //NOT SELECTED
+            // IS: NOT SELECTED
             _ => {
-              //Reject.req
-              if tx_sender.send(HsmsMessage::RejectRequest(RejectRequest {
-                session_id: data_message.session_id,
-                message_type: 0,
-                reason_code: RejectReason::EntityNotSelected as u8,
-                system: data_message.system
-              })).is_err() {break}
+              // TX: Reject.req
+              if tx_sender.send(HsmsMessage {
+                session_id: rx_message.session_id,
+                system: rx_message.system,
+                contents: HsmsMessageContents::RejectRequest(0, RejectReason::EntityNotSelected as u8)
+              }).is_err() {break}
             },
           }
         },
-        //Select.req
-        HsmsMessage::SelectRequest(select_request) => {
+        // RX: Select.req
+        HsmsMessageContents::SelectRequest => {
           let mut select = self.selection_state.write().unwrap();
           match select.deref() {
+            // IS: NOT SELECTED
             SelectionState::NotSelected => {
-              //Select.rsp: Success
-              if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
-                session_id: select_request.session_id,
-                status: SelectStatus::Success as u8,
-                system: select_request.system,
-              })).is_err() {break};
-              *select.deref_mut() = SelectionState::Selected(select_request.session_id)
+              // TX: Select.rsp Success
+              if tx_sender.send(HsmsMessage {
+                session_id: rx_message.session_id,
+                system: rx_message.system,
+                contents: HsmsMessageContents::SelectResponse(SelectStatus::Success as u8),
+              }).is_err() {break};
+              // TO: SELECTED
+              *select.deref_mut() = SelectionState::Selected(rx_message.session_id)
             },
+            // IS: AWAITING REPLY
             SelectionState::AwaitingReply(session_id) => {
-              if select_request.session_id == *session_id {
-                //Select.rsp: Success
-                if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
-                  session_id: select_request.session_id,
-                  status: SelectStatus::Success as u8,
-                  system: select_request.system,
-                })).is_err() {break};
-              } else {
-                //Select.rsp: Already Active
-                if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
-                  session_id: select_request.session_id,
-                  status: SelectStatus::AlreadyActive as u8,
-                  system: select_request.system,
-                })).is_err() {break};
+              // RX: Valid Simultaneous Select
+              if rx_message.session_id == *session_id {
+                // TX: Select.rsp Success
+                if tx_sender.send(HsmsMessage {
+                  session_id: rx_message.session_id,
+                  system: rx_message.system,
+                  contents: HsmsMessageContents::SelectResponse(SelectStatus::Success as u8),
+                }).is_err() {break};
+              }
+              // RX: Invalid Simultaneous Select
+              else {
+                // TX: Select.rsp Already Active
+                if tx_sender.send(HsmsMessage {
+                  session_id: rx_message.session_id,
+                  system: rx_message.system,
+                  contents: HsmsMessageContents::SelectResponse(SelectStatus::AlreadyActive as u8),
+                }).is_err() {break};
               }
             },
+            // IS: SELECTED
             SelectionState::Selected(_session_id) => {
-              //Select.rsp: Already Active
-              if tx_sender.send(HsmsMessage::SelectResponse(SelectResponse {
-                session_id: select_request.session_id,
-                status: SelectStatus::AlreadyActive as u8,
-                system: select_request.system,
-              })).is_err() {break};
+              // TX: Select.rsp Already Active
+              if tx_sender.send(HsmsMessage {
+                session_id: rx_message.session_id,
+                system: rx_message.system,
+                contents: HsmsMessageContents::SelectResponse(SelectStatus::AlreadyActive as u8),
+              }).is_err() {break};
             },
           }
         },
-        //Select.rsp
-        HsmsMessage::SelectResponse(_select_response) => {
-          todo!()
-        },
-        //Deselect.req
-        HsmsMessage::DeselectRequest(_deselect_request) => {
-          todo!()
-        },
-        //Deselect.rsp
-        HsmsMessage::DeselectResponse(_deselect_response) => {
-          todo!()
-        },
-        //Linktest.req
-        HsmsMessage::LinktestRequest(linktest_request) => {
-          //Linktest.rsp
-          if tx_sender.send(HsmsMessage::LinktestResponse(LinktestResponse {
-            system: linktest_request.system
-          })).is_err() {break};
-        },
-        //Linktest.rsp
-        HsmsMessage::LinktestResponse(linktest_response) => {
+        // RX: Select.rsp
+        HsmsMessageContents::SelectResponse(select_status) => {
+          // OUTBOX: Find Transaction
           let mut outbox = self.outbox.lock().unwrap();
           let mut optional_transaction: Option<u32> = None;
           for (outbox_id, (system, session_type, _)) in outbox.deref() {
-            if *system == linktest_response.system && *session_type == SessionType::LinktestRequest {
+            if *system == rx_message.system && *session_type == SessionType::SelectRequest {
               optional_transaction = Some(*outbox_id);
               break;
             }
           }
+          // OUTBOX: Transaction Found
           if let Some(transaction) = optional_transaction {
-            //Outbox
+            // OUTBOX: Complete Transaction
             let (_, _, sender) = outbox.deref_mut().remove(&transaction).unwrap();
-            sender.send(Some(HsmsMessage::LinktestResponse(linktest_response))).unwrap();
-          } else {
-            //Reject.req
-            if tx_sender.send(HsmsMessage::RejectRequest(RejectRequest {
-              session_id: 0xFFFF,
-              message_type: 0,
-              reason_code: RejectReason::TransactionNotOpen as u8,
-              system: linktest_response.system
-            })).is_err() {break}
+            sender.send(Some(HsmsMessage{
+              session_id: rx_message.session_id,
+              system: rx_message.system,
+              contents: HsmsMessageContents::SelectResponse(select_status),
+            })).unwrap();
+          }
+          // OUTBOX: Transaction Not Found
+          else {
+            // TX: Reject.req
+            if tx_sender.send(HsmsMessage {
+              session_id: rx_message.session_id,
+              system: rx_message.system,
+              contents: HsmsMessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
+            }).is_err() {break}
           }
         },
-        //Reject.req
-        HsmsMessage::RejectRequest(_reject_request) => {
+        // RX: Deselect.req
+        HsmsMessageContents::DeselectRequest => {
           todo!()
         },
-        //Separate.req
-        HsmsMessage::SeparateRequest(separate_request) => {
+        // RX: Deselect.rsp
+        HsmsMessageContents::DeselectResponse(_deselect_status) => {
+          todo!()
+        },
+        // RX: Linktest.req
+        HsmsMessageContents::LinktestRequest => {
+          // Linktest.rsp
+          if tx_sender.send(HsmsMessage{
+            session_id: 0xFFFF,
+            system: rx_message.system,
+            contents: HsmsMessageContents::LinktestResponse,
+          }).is_err() {break};
+        },
+        // RX: Linktest.rsp
+        HsmsMessageContents::LinktestResponse => {
+          // Find Outbox Transaction
+          let mut outbox = self.outbox.lock().unwrap();
+          let mut optional_transaction: Option<u32> = None;
+          for (outbox_id, (system, session_type, _)) in outbox.deref() {
+            if *system == rx_message.system && *session_type == SessionType::LinktestRequest {
+              optional_transaction = Some(*outbox_id);
+              break;
+            }
+          }
+          // Outbox Transaction Found
+          if let Some(transaction) = optional_transaction {
+            // Complete Outbox Transaction
+            let (_, _, sender) = outbox.deref_mut().remove(&transaction).unwrap();
+            sender.send(Some(rx_message)).unwrap();
+          }
+          // Outbox Transaction Not Found
+          else {
+            // TX: Reject.req
+            if tx_sender.send(HsmsMessage {
+              session_id: 0xFFFF,
+              system: rx_message.system,
+              contents: HsmsMessageContents::LinktestResponse,
+            }).is_err() {break}
+          }
+        },
+        // RX: Reject.req
+        HsmsMessageContents::RejectRequest(_message_type, _reason_code) => {
+          //???
+        },
+        // RX: Separate.req
+        HsmsMessageContents::SeparateRequest => {
           let mut select = self.selection_state.write().unwrap();
           if let SelectionState::Selected(session_id) = select.deref() {
-            if *session_id == separate_request.session_id {
+            if *session_id == rx_message.session_id {
               *select.deref_mut() = SelectionState::NotSelected;
             }
           }
         },
       }
     }
+    // TO: NOT CONNECTED
     self.disconnect();
     println!("GenericClient::rx_handle end");
   }
@@ -1226,7 +1276,7 @@ impl GenericClient {
     delay: Duration,
   ) -> Option<HsmsMessage> {
     println!("GenericClient::tx_handle");
-    let (system_bytes, session_type) = (message.system_bytes(), message.session_type());
+    let (system_bytes, session_type) = (message.system, message.contents.session_type());
     match self.tx_sender.lock().unwrap().deref() {
       Some(tx_sender) => {
         if reply_expected {
@@ -1330,31 +1380,56 @@ impl GenericClient {
   /// [T3]:                   ParameterSettings::t3
   pub fn data(
     self: &Arc<Self>,
-    message: DataMessage,
+    message: secs_ii::Message,
   ) -> JoinHandle<Result<Option<HsmsMessage>, ConnectionStateTransition>> {
     println!("GenericClient::data");
     let clone: Arc<GenericClient> = self.clone();
     let reply_expected = message.function % 2 == 1 && message.w;
     thread::spawn(move || {
-      match clone.tx_handle(
-        HsmsMessage::DataMessage(message),
-        reply_expected,
-        clone.primitive_client.parameter_settings.t3,
-      ) {
-        Some(rx_message) => Ok(Some(rx_message)),
-        None => {
-          if reply_expected {
-            clone.disconnect();
-            Err(ConnectionStateTransition::ConnectedToNotConnected)
-          } else {
-            Ok(None)
+      match clone.primitive_client.deref().connection_state.read().unwrap().deref() {
+        // IS: CONNECTED
+        ConnectionState::Connected(_) => {
+          match clone.selection_state.read().unwrap().deref() {
+            // IS: SELECTED
+            SelectionState::Selected(session_id) => {
+              // TX: Data Message
+              match clone.tx_handle(
+                HsmsMessage {
+                  session_id: *session_id,
+                  system: 0,
+                  contents: HsmsMessageContents::DataMessage(message),
+                },
+                reply_expected,
+                clone.primitive_client.parameter_settings.t3,
+              ) {
+                // RX: Valid
+                Some(rx_message) => Ok(Some(rx_message)),
+                // RX: Invalid
+                None => {
+                  // Reply Expected
+                  if reply_expected {
+                    // TO: NOT CONNECTED
+                    clone.disconnect();
+                    Err(ConnectionStateTransition::ConnectedToNotConnected)
+                  }
+                  // Reply Not Expected
+                  else {
+                    Ok(None)
+                  }
+                },
+              }
+            },
+            // IS: NOT SELECTED
+            _ => Err(ConnectionStateTransition::None),
           }
         },
+        // IS: NOT CONNECTED
+        _ => Err(ConnectionStateTransition::None),
       }
     })
   }
 
-  /// ### SELECT PROCEDURE (TODO)
+  /// ### SELECT PROCEDURE
   /// **Based on SEMI E37-1109§7.3-7.4**
   /// 
   /// Asks the [Client] to initiate the [Select Procedure] by [Transmit]ting
@@ -1408,42 +1483,62 @@ impl GenericClient {
     println!("GenericClient::select");
     let clone: Arc<GenericClient> = self.clone();
     thread::spawn(move || {
-      let select = clone.selection_state.read().unwrap();
-      match select.deref() {
-        SelectionState::NotSelected => {
-          let mut select = clone.selection_state.write().unwrap();
-          *select.deref_mut() = SelectionState::AwaitingReply(session_id);
-          match clone.tx_handle(
-            //Select.req
-            HsmsMessage::SelectRequest(SelectRequest {
-              session_id,
-              system: 0, //TODO: FIGURE OUT HOW TO FIX THE SYSTEM BYTES THING
-            }),
-            true,
-            clone.primitive_client.parameter_settings.t6,
-          ) {
-            Some(rx_message) => {
-              match rx_message {
-                HsmsMessage::SelectResponse(select_response) => {
-                  if select_response.session_id == session_id {
-                    //Selected
-                    *select.deref_mut() = SelectionState::Selected(session_id);
-                    Ok(())
-                  } else {
-                    //Reject?
-                    todo!()
+      match clone.primitive_client.deref().connection_state.read().unwrap().deref() {
+        // IS: CONNECTED
+        ConnectionState::Connected(_) => {
+          match clone.selection_state.read().unwrap().deref() {
+            // IS: NOT SELECTED
+            SelectionState::NotSelected => {
+              let mut select = clone.selection_state.write().unwrap();
+              *select.deref_mut() = SelectionState::AwaitingReply(session_id);
+              // TX: Select.req
+              match clone.tx_handle(
+                HsmsMessage {
+                  session_id,
+                  system: 0,
+                  contents: HsmsMessageContents::SelectRequest,
+                },
+                true,
+                clone.primitive_client.parameter_settings.t6,
+              ) {
+                // RX: Valid
+                Some(rx_message) => {
+                  match rx_message.contents {
+                    // RX: Select.rsp
+                    HsmsMessageContents::SelectResponse(select_status) => {
+                      // RX: Select.rsp Success
+                      if rx_message.session_id == session_id && select_status == SelectStatus::Success as u8 {
+                        // TO: SELECTED
+                        *select.deref_mut() = SelectionState::Selected(session_id);
+                        Ok(())
+                      }
+                      // RX: Select.rsp Failure
+                      else {
+                        *select.deref_mut() = SelectionState::NotSelected;
+                        Err(ConnectionStateTransition::None)
+                      }
+                    },
+                    // RX: Unknown
+                    _ => {
+                      *select.deref_mut() = SelectionState::NotSelected;
+                      Err(ConnectionStateTransition::None)
+                    },
                   }
                 },
-                //Reject?
-                _ => todo!(),
+                // RX: Invalid
+                None => {
+                  // TO: NOT CONNECTED
+                  *select.deref_mut() = SelectionState::NotSelected;
+                  clone.disconnect();
+                  Err(ConnectionStateTransition::ConnectedToNotConnected)
+                },
               }
             },
-            None => {
-              clone.disconnect();
-              Err(ConnectionStateTransition::ConnectedToNotConnected)
-            },
+            // IS: SELECTED
+            _ => Err(ConnectionStateTransition::None),
           }
         },
+        // IS: NOT CONNECTED
         _ => Err(ConnectionStateTransition::None),
       }
     })
@@ -1546,22 +1641,36 @@ impl GenericClient {
     println!("GenericClient::linktest");
     let clone: Arc<GenericClient> = self.clone();
     thread::spawn(move || {
-      match clone.tx_handle(
-        HsmsMessage::LinktestRequest(LinktestRequest { system: 0xFFFF }),
-        true,
-        clone.primitive_client.parameter_settings.t6,
-      ) {
-        Some(rx_message) => {
-          if let HsmsMessage::LinktestResponse(_linktest_response) = rx_message {
-            Ok(())
-          } else {
-            Err(ConnectionStateTransition::None)
+      match clone.primitive_client.deref().connection_state.read().unwrap().deref() {
+        // IS: CONNECTED
+        ConnectionState::Connected(_) => {
+          // TX: Linktext.req
+          match clone.tx_handle(
+            HsmsMessage {
+              session_id: 0xFFFF,
+              system: 0,
+              contents: HsmsMessageContents::LinktestRequest,
+            },
+            true,
+            clone.primitive_client.parameter_settings.t6,
+          ) {
+            // RX: Valid
+            Some(rx_message) => {
+              match rx_message.contents {
+                HsmsMessageContents::LinktestResponse => Ok(()),
+                _ => Err(ConnectionStateTransition::None),
+              }
+            },
+            // RX: Invalid
+            None => {
+              // TO: NOT CONNECTED
+              clone.disconnect();
+              Err(ConnectionStateTransition::ConnectedToNotConnected)
+            },
           }
         },
-        None => {
-          clone.disconnect();
-          Err(ConnectionStateTransition::ConnectedToNotConnected)
-        },
+        // IS: NOT CONNECTED
+        _ => Err(ConnectionStateTransition::None),
       }
     })
   }
@@ -1946,92 +2055,87 @@ pub enum SessionType {
 /// [Linktest.rsp]:      LinktestResponse
 /// [Reject.req]:        RejectRequest
 /// [Separate.req]:      SeparateRequest
-#[repr(u8)]
-#[derive(Clone, Debug)]
-pub enum HsmsMessage {
-  DataMessage      (DataMessage)      = SessionType::DataMessage      as u8,
-  SelectRequest    (SelectRequest)    = SessionType::SelectRequest    as u8,
-  SelectResponse   (SelectResponse)   = SessionType::SelectResponse   as u8,
-  DeselectRequest  (DeselectRequest)  = SessionType::DeselectRequest  as u8,
-  DeselectResponse (DeselectResponse) = SessionType::DeselectResponse as u8,
-  LinktestRequest  (LinktestRequest)  = SessionType::LinktestRequest  as u8,
-  LinktestResponse (LinktestResponse) = SessionType::LinktestResponse as u8,
-  RejectRequest    (RejectRequest)    = SessionType::RejectRequest    as u8,
-  SeparateRequest  (SeparateRequest)  = SessionType::SeparateRequest  as u8,
+pub struct HsmsMessage {
+  pub session_id: u16,
+  pub system:     u32,
+  pub contents:   HsmsMessageContents,
 }
 impl From<HsmsMessage> for Message {
   /// ### HSMS MESSAGE INTO GENERIC MESSAGE
   /// 
   /// Due to the fact that valid HSMS Messages are a subset of valid Messages,
   /// this operation is infallible.
-  fn from(val: HsmsMessage) -> Self {
-    match val {
-      HsmsMessage::DataMessage(message) => {
+  fn from(hsms_message: HsmsMessage) -> Self {
+    match hsms_message.contents {
+      HsmsMessageContents::DataMessage(message) => {
         Message {
           header: MessageHeader {
-            session_id        : message.session_id,
+            session_id        : hsms_message.session_id,
             byte_2            : ((message.w as u8) << 7) | message.stream,
             byte_3            : message.function,
             presentation_type : PresentationType::SecsII as u8,
             session_type      : SessionType::DataMessage as u8,
-            system            : message.system,
+            system            : hsms_message.system,
           },
-          text: message.text,
+          text: match message.text {
+            Some(item) => Vec::<u8>::from(item),
+            None => vec![],
+          },
         }
       },
-      HsmsMessage::SelectRequest(message) => {
+      HsmsMessageContents::SelectRequest => {
         Message {
           header: MessageHeader {
-            session_id        : message.session_id,
+            session_id        : hsms_message.session_id,
             byte_2            : 0,
             byte_3            : 0,
             presentation_type : PresentationType::SecsII as u8,
             session_type      : SessionType::SelectRequest as u8,
-            system            : message.system,
+            system            : hsms_message.system,
           },
           text: vec![],
         }
       },
-      HsmsMessage::SelectResponse(message) => {
+      HsmsMessageContents::SelectResponse(select_status) => {
         Message {
           header: MessageHeader {
-            session_id        : message.session_id,
+            session_id        : hsms_message.session_id,
             byte_2            : 0,
-            byte_3            : message.status,
+            byte_3            : select_status,
             presentation_type : PresentationType::SecsII as u8,
             session_type      : SessionType::SelectResponse as u8,
-            system            : message.system,
+            system            : hsms_message.system,
           },
           text: vec![],
         }
       },
-      HsmsMessage::DeselectRequest(message) => {
+      HsmsMessageContents::DeselectRequest => {
         Message {
           header: MessageHeader {
-            session_id        : message.session_id,
+            session_id        : hsms_message.session_id,
             byte_2            : 0,
             byte_3            : 0,
             presentation_type : PresentationType::SecsII as u8,
             session_type      : SessionType::DeselectRequest as u8,
-            system            : message.system,
+            system            : hsms_message.system,
           },
           text: vec![],
         }
       },
-      HsmsMessage::DeselectResponse(message) => {
+      HsmsMessageContents::DeselectResponse(deselect_status) => {
         Message {
           header: MessageHeader {
-            session_id        : message.session_id,
+            session_id        : hsms_message.session_id,
             byte_2            : 0,
-            byte_3            : message.status,
+            byte_3            : deselect_status,
             presentation_type : PresentationType::SecsII as u8,
             session_type      : SessionType::DeselectResponse as u8,
-            system            : message.system,
+            system            : hsms_message.system,
           },
           text: vec![],
         }
       },
-      HsmsMessage::LinktestRequest(message) => {
+      HsmsMessageContents::LinktestRequest => {
         Message {
           header: MessageHeader {
             session_id        : 0xFFFF,
@@ -2039,12 +2143,12 @@ impl From<HsmsMessage> for Message {
             byte_3            : 0,
             presentation_type : PresentationType::SecsII as u8,
             session_type      : SessionType::LinktestRequest as u8,
-            system            : message.system,
+            system            : hsms_message.system,
           },
           text: vec![],
         }
       },
-      HsmsMessage::LinktestResponse(message) => {
+      HsmsMessageContents::LinktestResponse => {
         Message {
           header: MessageHeader {
             session_id        : 0xFFFF,
@@ -2052,33 +2156,33 @@ impl From<HsmsMessage> for Message {
             byte_3            : 0,
             presentation_type : PresentationType::SecsII as u8,
             session_type      : SessionType::LinktestResponse as u8,
-            system            : message.system,
+            system            : hsms_message.system,
           },
           text: vec![],
         }
       },
-      HsmsMessage::RejectRequest(message) => {
+      HsmsMessageContents::RejectRequest(message_type, reason_code) => {
         Message {
           header: MessageHeader {
-            session_id        : message.session_id,
-            byte_2            : message.message_type,
-            byte_3            : message.reason_code,
+            session_id        : hsms_message.session_id,
+            byte_2            : message_type,
+            byte_3            : reason_code,
             presentation_type : PresentationType::SecsII as u8,
             session_type      : SessionType::RejectRequest as u8,
-            system            : message.system,
+            system            : hsms_message.system,
           },
           text: vec![],
         }
       },
-      HsmsMessage::SeparateRequest(message) => {
+      HsmsMessageContents::SeparateRequest => {
         Message {
           header: MessageHeader {
-            session_id        : message.session_id,
+            session_id        : hsms_message.session_id,
             byte_2            : 0,
             byte_3            : 0,
             presentation_type : PresentationType::SecsII as u8,
             session_type      : SessionType::SeparateRequest as u8,
-            system            : message.system,
+            system            : hsms_message.system,
           },
           text: vec![],
         }
@@ -2095,224 +2199,213 @@ impl TryFrom<Message> for HsmsMessage {
   /// this operation is fallable when the Message is not an HSMS message.
   fn try_from(message: Message) -> Result<Self, Self::Error> {
     if message.header.presentation_type != 0 {return Err(RejectReason::UnsupportedPresentationType)}
-    match message.header.session_type {
-      0 => {
-        Ok(HsmsMessage::DataMessage(DataMessage {
-          session_id : message.header.session_id,
-          w          : message.header.byte_2 & 0b1000_0000 > 0,
-          stream     : message.header.byte_2 & 0b0111_1111,
-          function   : message.header.byte_3,
-          system     : message.header.system,
-          text       : message.text,
-        }))
-      },
-      1 => {
-        if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
-        if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
-        if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
-        Ok(HsmsMessage::SelectRequest(SelectRequest {
-          session_id : message.header.session_id,
-          system     : message.header.system,
-        }))
-      },
-      2 => {
-        if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
-        if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
-        Ok(HsmsMessage::SelectResponse(SelectResponse {
-          session_id : message.header.session_id,
-          status     : message.header.byte_3,
-          system     : message.header.system,
-        }))
-      },
-      3 => {
-        if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
-        if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
-        if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
-        Ok(HsmsMessage::DeselectRequest(DeselectRequest {
-          session_id : message.header.session_id,
-          system     : message.header.system,
-        }))
-      },
-      4 => {
-        if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
-        if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
-        Ok(HsmsMessage::DeselectResponse(DeselectResponse {
-          session_id : message.header.session_id,
-          status     : message.header.byte_3,
-          system     : message.header.system,
-        }))
-      },
-      5 => {
-        if message.header.session_id != 0xFFFF {return Err(RejectReason::MalformedData)}
-        if message.header.byte_2     != 0      {return Err(RejectReason::MalformedData)}
-        if message.header.byte_3     != 0      {return Err(RejectReason::MalformedData)}
-        if !message.text.is_empty()            {return Err(RejectReason::MalformedData)}
-        Ok(HsmsMessage::LinktestRequest(LinktestRequest {
-          system : message.header.system,
-        }))
-      },
-      6 => {
-        if message.header.session_id != 0xFFFF {return Err(RejectReason::MalformedData)}
-        if message.header.byte_2     != 0      {return Err(RejectReason::MalformedData)}
-        if message.header.byte_3     != 0      {return Err(RejectReason::MalformedData)}
-        if !message.text.is_empty()            {return Err(RejectReason::MalformedData)}
-        Ok(HsmsMessage::LinktestResponse(LinktestResponse {
-          system : message.header.system,
-        }))
-      },
-      7 => {
-        if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
-        Ok(HsmsMessage::RejectRequest(RejectRequest {
-          session_id   : message.header.session_id,
-          message_type : message.header.byte_2,
-          reason_code  : message.header.byte_3,
-          system       : message.header.system,
-        }))
-      },
-      9 => {
-        if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
-        if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
-        if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
-        Ok(HsmsMessage::SeparateRequest(SeparateRequest {
-          session_id : message.header.session_id,
-          system     : message.header.system,
-        }))
-      },
-      _ => Err(RejectReason::UnsupportedSessionType)
-    }
+    Ok(HsmsMessage {
+        session_id: message.header.session_id,
+        system: message.header.system,
+        contents: match message.header.session_type {
+          0 => {
+            HsmsMessageContents::DataMessage(secs_ii::Message{
+              stream   : message.header.byte_2 & 0b0111_1111,
+              function : message.header.byte_3,
+              w        : message.header.byte_2 & 0b1000_0000 > 0,
+              text     : match secs_ii::Item::try_from(message.text) {
+                // Valid Item
+                Ok(text) => Some(text),
+                // Invalid Item
+                Err(error) => {
+                  match error {
+                    // Empty Text: Considered Valid Here
+                    secs_ii::Error::EmptyText => {None},
+                    // Other Error: Malformed Data
+                    _ => {return Err(RejectReason::MalformedData)}
+                  }
+                },
+              },
+            })
+          },
+          1 => {
+            if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+            if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
+            if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
+            HsmsMessageContents::SelectRequest
+          },
+          2 => {
+            if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+            if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
+            HsmsMessageContents::SelectResponse(message.header.byte_3)
+          },
+          3 => {
+            if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+            if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
+            if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
+            HsmsMessageContents::DeselectRequest
+          },
+          4 => {
+            if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+            if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
+            HsmsMessageContents::DeselectResponse(message.header.byte_3)
+          },
+          5 => {
+            if message.header.session_id != 0xFFFF {return Err(RejectReason::MalformedData)}
+            if message.header.byte_2     != 0      {return Err(RejectReason::MalformedData)}
+            if message.header.byte_3     != 0      {return Err(RejectReason::MalformedData)}
+            if !message.text.is_empty()            {return Err(RejectReason::MalformedData)}
+            HsmsMessageContents::LinktestRequest
+          },
+          6 => {
+            if message.header.session_id != 0xFFFF {return Err(RejectReason::MalformedData)}
+            if message.header.byte_2     != 0      {return Err(RejectReason::MalformedData)}
+            if message.header.byte_3     != 0      {return Err(RejectReason::MalformedData)}
+            if !message.text.is_empty()            {return Err(RejectReason::MalformedData)}
+            HsmsMessageContents::LinktestResponse
+          },
+          7 => {
+            if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
+            HsmsMessageContents::RejectRequest(message.header.byte_2, message.header.byte_3)
+          },
+          9 => {
+            if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+            if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
+            if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
+            HsmsMessageContents::SeparateRequest
+          },
+          _ => {return Err(RejectReason::UnsupportedSessionType)}
+        },
+    })
   }
 }
-impl HsmsMessage {
+
+#[repr(u8)]
+#[derive(Clone, Debug)]
+pub enum HsmsMessageContents {
+  /// ## DATA MESSAGE
+  /// **Based on SEMI E37-1109§8.3.1-8.3.3**
+  /// 
+  /// An [HSMS Message] with a [Session Type] of 0, used by the initiator of or
+  /// responding entity in the [Data Procedure] to send data.
+  /// 
+  /// Contains a SECS-II Data Message.
+  /// 
+  /// [HSMS Message]:   HsmsMessage
+  /// [Session Type]:   SessionType
+  /// [Data Procedure]: GenericClient::data
+  DataMessage(secs_ii::Message) = SessionType::DataMessage as u8,
+
+  /// ## SELECT REQUEST
+  /// **Based on SEMI E37-1109§8.3.4**
+  /// 
+  /// An [HSMS Message] with a [Session Type] of 1, used by the initiator of the
+  /// [Select Procedure] for establishing communications.
+  /// 
+  /// [HSMS Message]:     HsmsMessage
+  /// [Session Type]:     SessionType
+  /// [Select Procedure]: GenericClient::select
+  SelectRequest = SessionType::SelectRequest as u8,
+
+  /// ## SELECT RESPONSE
+  /// **Based on SEMI E37-1109§8.3.5-8.3.7**
+  /// 
+  /// An [HSMS Message] with a [Session Type] of 2, used by the responding
+  /// entity in the [Select Procedure].
+  /// 
+  /// Contains a [Select Status], indicating the success or failure mode of
+  /// the [Select Procedure].
+  /// 
+  /// [HSMS Message]:     HsmsMessage
+  /// [Session Type]:     SessionType
+  /// [Select Procedure]: GenericClient::select
+  /// [Select Status]:    SelectStatus
+  SelectResponse(u8) = SessionType::SelectResponse as u8,
+
+  /// ## DESELECT REQUEST
+  /// **Based on SEMI E37-1109§8.3.8-8.3.10**
+  /// 
+  /// An [HSMS Message] with a [Session Type] of 3, used by the initiator of the
+  /// [Deselect Procedure] for breaking communications.
+  /// 
+  /// [HSMS Message]:       HsmsMessage
+  /// [Session Type]:       SessionType
+  /// [Deselect Procedure]: GenericClient::deselect
+  DeselectRequest = SessionType::DeselectRequest as u8,
+
+  /// ## DESELECT RESPONSE
+  /// **Based on SEMI E37-1109§8.3.11-8.3.13**
+  /// 
+  /// An [HSMS Message] with a [Session Type] of 4, used by the responding entity
+  /// in the [Deselect Procedure].
+  /// 
+  /// Contains a [Deselect Status], indicating the success or failure mode of
+  /// the [Deselect Procedure].
+  /// 
+  /// [HSMS Message]:       HsmsMessage
+  /// [Session Type]:       SessionType
+  /// [Deselect Procedure]: GenericClient::deselect
+  /// [Deselect Status]:    DeselectStatus
+  DeselectResponse(u8) = SessionType::DeselectResponse as u8,
+
+  /// ## LINKTEST REQUEST
+  /// **Based on SEMI E37-1109§8.3.14-8.3.16**
+  /// 
+  /// An [HSMS Message] with a [Session Type] of 5, used by the initiator of the
+  /// [Linktest Procedure] for checking communications stability.
+  /// 
+  /// [HSMS Message]:       HsmsMessage
+  /// [Session Type]:       SessionType
+  /// [Linktest Procedure]: GenericClient::linktest
+  LinktestRequest = SessionType::LinktestRequest as u8,
+
+  /// ## LINKTEST RESPONSE
+  /// **Based on SEMI E37-1109§8.3.17-8.3.19**
+  /// 
+  /// An [HSMS Message] with a [Session Type] of 6, used by the responding entity
+  /// in the [Linktest Procedure].
+  /// 
+  /// [HSMS Message]:       HsmsMessage
+  /// [Session Type]:       SessionType
+  /// [Linktest Procedure]: GenericClient::linktest
+  LinktestResponse = SessionType::LinktestResponse as u8,
+
+  /// ## REJECT REQUEST
+  /// **Based on SEMI E37-1109§8.3.20-8.3.21**
+  /// 
+  /// An [HSMS Message] with a [Session Type] of 7, used by the responding entity
+  /// in the [Reject Procedure].
+  /// 
+  /// Contains the [Presentation Type] or [Session Type] of the message being
+  /// rejected, and the [Reason Code] indicating why the message was rejected.
+  /// 
+  /// [HSMS Message]:      HsmsMessage
+  /// [Presentation Type]: PresentationType
+  /// [Session Type]:      SessionType
+  /// [Reason Code]:       RejectReason
+  /// [Reject Procedure]:  GenericClient::reject
+  RejectRequest(u8, u8) = SessionType::RejectRequest as u8,
+
+  /// ## SEPARATE REQUEST
+  /// **Based on SEMI E37-1109§8.3.22**
+  /// 
+  /// An [HSMS Message] with a [Session Type] of 9, used by the initiator of the
+  /// [Separate Procedure] for breaking communications.
+  /// 
+  /// [HSMS Message]:       HsmsMessage
+  /// [Session Type]:       SessionType
+  /// [Separate Procedure]: GenericClient::separate
+  SeparateRequest = SessionType::SeparateRequest as u8,
+}
+impl HsmsMessageContents {
   pub fn session_type(&self) -> SessionType {
     match self {
-      HsmsMessage::DataMessage      (_) => SessionType::DataMessage     ,
-      HsmsMessage::SelectRequest    (_) => SessionType::SelectRequest   ,
-      HsmsMessage::SelectResponse   (_) => SessionType::SelectResponse  ,
-      HsmsMessage::DeselectRequest  (_) => SessionType::DeselectRequest ,
-      HsmsMessage::DeselectResponse (_) => SessionType::DeselectResponse,
-      HsmsMessage::LinktestRequest  (_) => SessionType::LinktestRequest ,
-      HsmsMessage::LinktestResponse (_) => SessionType::LinktestResponse,
-      HsmsMessage::RejectRequest    (_) => SessionType::RejectRequest   ,
-      HsmsMessage::SeparateRequest  (_) => SessionType::SeparateRequest ,
+      HsmsMessageContents::DataMessage      (_)    => SessionType::DataMessage     ,
+      HsmsMessageContents::SelectRequest           => SessionType::SelectRequest   ,
+      HsmsMessageContents::SelectResponse   (_)    => SessionType::SelectResponse  ,
+      HsmsMessageContents::DeselectRequest         => SessionType::DeselectRequest ,
+      HsmsMessageContents::DeselectResponse (_)    => SessionType::DeselectResponse,
+      HsmsMessageContents::LinktestRequest         => SessionType::LinktestRequest ,
+      HsmsMessageContents::LinktestResponse        => SessionType::LinktestResponse,
+      HsmsMessageContents::RejectRequest    (_, _) => SessionType::RejectRequest   ,
+      HsmsMessageContents::SeparateRequest         => SessionType::SeparateRequest ,
     }
   }
-
-  pub fn system_bytes(&self) -> u32 {
-    match self {
-      HsmsMessage::DataMessage      (data_message)      => data_message.system,
-      HsmsMessage::SelectRequest    (select_request)    => select_request.system,
-      HsmsMessage::SelectResponse   (select_response)   => select_response.system,
-      HsmsMessage::DeselectRequest  (deselect_request)  => deselect_request.system,
-      HsmsMessage::DeselectResponse (deselect_response) => deselect_response.system,
-      HsmsMessage::LinktestRequest  (linktest_request)  => linktest_request.system,
-      HsmsMessage::LinktestResponse (linktest_response) => linktest_response.system,
-      HsmsMessage::RejectRequest    (reject_request)    => reject_request.system,
-      HsmsMessage::SeparateRequest  (separate_request)  => separate_request.system,
-    }
-  }
-}
-
-/// ## DATA MESSAGE
-/// **Based on SEMI E37-1109§8.3.1-8.3.3**
-/// 
-/// An [HSMS Message] with a [Session Type] of 0, used by the initiator of or
-/// responding entity in the [Data Procedure] to send data.
-/// 
-/// [HSMS Message]:   HsmsMessage
-/// [Session Type]:   SessionType
-/// [Data Procedure]: GenericClient::data
-#[derive(Clone, Debug)]
-pub struct DataMessage {
-  /// ### SESSION ID
-  /// **Based on SEMI E37-1109§8.3.3.1**
-  /// 
-  /// The specific value is subject to Subsidiary Standards.
-  pub session_id : u16,
-
-  /// ### W-BIT
-  /// **Based on SEMI E37-1109§8.3.3.3**
-  /// 
-  /// In a Primary Data Message, the W-Bit indicates whether a
-  /// Reply Data Message is expected.
-  pub w : bool,
-
-  /// ### STREAM
-  /// **Based on SEMI E37-1109§8.3.3.3**
-  /// 
-  /// Identifies the major topic of the message according to SECS-II.
-  pub stream : u8,
-
-  /// ### FUNCTION
-  /// **Based on SEMI E37-1109§8.3.3.4**
-  /// 
-  /// Identifies the minor topic of the message according to SECS-II.
-  pub function : u8,
-
-  /// ### SYSTEM BYTES
-  /// **Based on SEMI E37-1109§8.3.3.6**
-  /// 
-  /// Identifies a transaction uniquely among the set of open transactions.
-  pub system : u32,
-
-  /// ### MESSAGE TEXT
-  /// **Based on SEMI E37-1109§8.3.3.7**
-  /// 
-  /// Contains the Text of the Data Message.
-  pub text : Vec<u8>,
-}
-
-/// ## SELECT REQUEST
-/// **Based on SEMI E37-1109§8.3.4**
-/// 
-/// An [HSMS Message] with a [Session Type] of 1, used by the initiator of the
-/// [Select Procedure] for establishing communications.
-/// 
-/// [HSMS Message]:     HsmsMessage
-/// [Session Type]:     SessionType
-/// [Select Procedure]: GenericClient::select
-#[derive(Clone, Copy, Debug)]
-pub struct SelectRequest {
-  /// ### SESSION ID
-  /// **Based on SEMI E37-1109§8.3.4.3**
-  /// 
-  /// The specific value is subject to Subsidiary Standards.
-  pub session_id: u16,
-
-  /// ### SYSTEM BYTES
-  /// **Based on SEMI E37-1109§8.3.4.4**
-  /// 
-  /// Identifies a transaction uniquely among the set of open transactions.
-  pub system: u32,
-}
-
-/// ## SELECT RESPONSE
-/// **Based on SEMI E37-1109§8.3.5-8.3.7**
-/// 
-/// An [HSMS Message] with a [Session Type] of 2, used by the responding entity
-/// in the [Select Procedure].
-/// 
-/// [HSMS Message]:     HsmsMessage
-/// [Session Type]:     SessionType
-/// [Select Procedure]: GenericClient::select
-#[derive(Clone, Copy, Debug)]
-pub struct SelectResponse {
-  /// ### SESSION ID
-  /// **Based on SEMI E37-1109§8.3.7.1**
-  /// 
-  /// Must equal the Session ID of the corresponding Select Request.
-  pub session_id: u16,
-
-  /// ### SELECT STATUS
-  /// **Based on SEMI E37-1109§8.3.7.2**
-  /// 
-  /// Indicates the success or failure mode of the Select Procedure.
-  pub status: u8,
-
-  /// ### SYSTEM BYTES
-  /// **Based on SEMI E37-1109§8.3.3.6**
-  /// 
-  /// Must equal the System Bytes of the corresponding Select Request.
-  pub system: u32,
 }
 
 /// ## SELECT STATUS
@@ -2337,46 +2430,6 @@ pub enum SelectStatus {
   Exhausted     = 3,
 }
 
-/// ## DESELECT REQUEST
-/// **Based on SEMI E37-1109§8.3.8-8.3.10**
-/// 
-/// An [HSMS Message] with a [Session Type] of 3, used by the initiator of the
-/// [Deselect Procedure] for breaking communications.
-/// 
-/// [HSMS Message]:       HsmsMessage
-/// [Session Type]:       SessionType
-/// [Deselect Procedure]: GenericClient::deselect
-#[derive(Clone, Copy, Debug)]
-pub struct DeselectRequest {
-  /// ### SESSION ID
-  /// **Based on SEMI E37-1109§8.3.10.1**
-  /// 
-  /// Must equal a previous Session ID used in a Select Procedure.
-  pub session_id: u16,
-
-  /// ### SYSTEM BYTES
-  /// **Based on SEMI E37-1109§8.3.10.2**
-  /// 
-  /// Identifies a transaction uniquely among the set of open transactions.
-  pub system: u32,
-}
-
-/// ## DESELECT RESPONSE
-/// **Based on SEMI E37-1109§8.3.11-8.3.13**
-/// 
-/// An [HSMS Message] with a [Session Type] of 4, used by the responding entity
-/// in the [Deselect Procedure].
-/// 
-/// [HSMS Message]:       HsmsMessage
-/// [Session Type]:       SessionType
-/// [Deselect Procedure]: GenericClient::deselect
-#[derive(Clone, Copy, Debug)]
-pub struct DeselectResponse {
-  pub session_id : u16, //Same as Request
-  pub status     : u8,  //Deselect Status
-  pub system     : u32, //Same as Request
-}
-
 /// ## DESELECT STATUS
 /// **Based on SEMI E37-1109§8.3.13.2**
 /// 
@@ -2396,51 +2449,6 @@ pub enum DeselectStatus {
   Success        = 0,
   NotEstablished = 1,
   Busy           = 2,
-}
-
-/// ## LINKTEST REQUEST
-/// **Based on SEMI E37-1109§8.3.14-8.3.16**
-/// 
-/// An [HSMS Message] with a [Session Type] of 5, used by the initiator of the
-/// [Linktest Procedure] for checking communications stability.
-/// 
-/// [HSMS Message]:       HsmsMessage
-/// [Session Type]:       SessionType
-/// [Linktest Procedure]: GenericClient::linktest
-#[derive(Clone, Copy, Debug)]
-pub struct LinktestRequest {
-  pub system : u32, //Unique
-}
-
-/// ## LINKTEST RESPONSE
-/// **Based on SEMI E37-1109§8.3.17-8.3.19**
-/// 
-/// An [HSMS Message] with a [Session Type] of 6, used by the responding entity
-/// in the [Linktest Procedure].
-/// 
-/// [HSMS Message]:       HsmsMessage
-/// [Session Type]:       SessionType
-/// [Linktest Procedure]: GenericClient::linktest
-#[derive(Clone, Copy, Debug)]
-pub struct LinktestResponse {
-  pub system : u32, //Same as Request
-}
-
-/// ## REJECT REQUEST
-/// **Based on SEMI E37-1109§8.3.20-8.3.21**
-/// 
-/// An [HSMS Message] with a [Session Type] of 7, used by the responding entity
-/// in the [Reject Procedure].
-/// 
-/// [HSMS Message]:     HsmsMessage
-/// [Session Type]:     SessionType
-/// [Reject Procedure]: GenericClient::reject
-#[derive(Clone, Copy, Debug)]
-pub struct RejectRequest {
-  pub session_id   : u16, //Same as Rejected Message
-  pub message_type : u8,  //PType or SType of Rejected Message
-  pub reason_code  : u8,  //Reason Code
-  pub system       : u32, //Same as Rejected Message
 }
 
 /// ## REJECT REASON
@@ -2486,21 +2494,6 @@ pub enum RejectReason {
   /// 
   /// A Data Message was recieved when not in the SELECTED state.
   EntityNotSelected = 4,
-}
-
-/// ## SEPARATE REQUEST
-/// **Based on SEMI E37-1109§8.3.22**
-/// 
-/// An [HSMS Message] with a [Session Type] of 9, used by the initiator of the
-/// [Separate Procedure] for breaking communications.
-/// 
-/// [HSMS Message]:       HsmsMessage
-/// [Session Type]:       SessionType
-/// [Separate Procedure]: GenericClient::separate
-#[derive(Clone, Copy, Debug)]
-pub struct SeparateRequest {
-  pub session_id : u16, //Further Defined
-  pub system     : u32, //Unique
 }
 
 // SECTION 9: SPECIAL CONSIDERATIONS

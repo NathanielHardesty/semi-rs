@@ -71,13 +71,13 @@ pub struct Message {
   /// [Message]: Message
   pub w: bool,
 
-  /// ### MESSAGE BODY
+  /// ### MESSAGE TEXT
   /// 
   /// The message's contents.
   /// 
   /// - [None] - Indicates a header-only message.
   /// - [Some] - Indicates a message with contents after the header.
-  pub body: Option<Item>,
+  pub text: Option<Item>,
 }
 
 /// ## DATA CONVERSION ERROR
@@ -88,6 +88,18 @@ pub struct Message {
 /// [Message]:         messages
 /// [Generic Message]: Message
 pub enum Error {
+  /// ### EMPTY TEXT
+  /// 
+  /// Binary data was attempted to be converted into an [Item] despite being
+  /// empty.
+  EmptyText,
+
+  /// ### INVALID TEXT
+  /// 
+  /// Binary data was attempted to be converted into a [Item] despite having an
+  /// invalid format.
+  InvalidText,
+
   /// ### WRONG STREAM
   /// 
   /// A [Generic Message] was attempted to be converted into a specifc [Message]
@@ -1408,7 +1420,7 @@ pub mod messages {
             stream:   $stream,
             function: $function,
             w:        $w,
-            body:     None,
+            text:     None,
           }
         }
       }
@@ -1419,7 +1431,7 @@ pub mod messages {
           if message.stream   != $stream   {return Err(WrongStream)}
           if message.function != $function {return Err(WrongFunction)}
           if message.w        != $w        {return Err(WrongReply)}
-          match message.body {
+          match message.text {
             None => Ok($name),
             Some(_item) => Err(WrongFormat),
           }
@@ -1451,7 +1463,7 @@ pub mod messages {
             stream:   $stream,
             function: $function,
             w:        $w,
-            body:     Some(value.0.into()),
+            text:     Some(value.0.into()),
           }
         }
       }
@@ -1462,7 +1474,7 @@ pub mod messages {
           if message.stream   != $stream   {return Err(WrongStream)}
           if message.function != $function {return Err(WrongFunction)}
           if message.w        != $w        {return Err(WrongReply)}
-          match message.body {
+          match message.text {
             Some(item) => {Ok(Self(item.try_into()?))},
             None => Err(WrongFormat),
           }
@@ -1494,7 +1506,7 @@ pub mod messages {
             stream:   $stream,
             function: $function,
             w:        $w,
-            body:     Some(value.0.into()),
+            text:     Some(value.0.into()),
           }
         }
       }
@@ -1505,7 +1517,7 @@ pub mod messages {
           if message.stream   != $stream   {return Err(WrongStream)}
           if message.function != $function {return Err(WrongFunction)}
           if message.w        != $w        {return Err(WrongReply)}
-          match message.body {
+          match message.text {
             Some(item) => {Ok(Self(item))},
             None => Err(WrongFormat),
           }

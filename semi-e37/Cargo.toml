@@ -14,3 +14,4 @@ edition = "2021"
 
 [dependencies]
 oneshot = "0.1.6"
+secs-ii = {path = "../semi-e5", version = "0.1.0"}
