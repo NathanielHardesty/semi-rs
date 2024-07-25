@@ -2,7 +2,7 @@
 #![feature(ascii_char_variants)]
 
 use std::{ascii::Char::*, sync::{mpsc::Receiver, Arc}, thread::{self, JoinHandle}, time::Duration};
-use hsms::{ConnectionMode, ConnectionStateTransition, GenericClient, ParameterSettings};
+use hsms::{ConnectionMode, ConnectionStateTransition, GenericClient, HsmsMessageID, ParameterSettings};
 use secs_ii::{Message, Item};
 
 fn main() {
@@ -12,46 +12,19 @@ fn main() {
   //let _ = host.join();
 }
 
-fn test_host() {
-  // CLIENT
-  let parameter_settings: ParameterSettings = ParameterSettings {
-    connect_mode: ConnectionMode::Active,
-    ..Default::default()
-  };
-  let client: Arc<GenericClient> = GenericClient::new(parameter_settings);
-  let _ = client.connect("127.0.0.1:5000").unwrap();
-  thread::sleep(Duration::from_millis(5000));
-  client.select(0).join().unwrap().unwrap();
-  loop {
-    thread::sleep(Duration::from_secs(2));
-    let link_result: Result<(), ConnectionStateTransition> = client.linktest().join().unwrap();
-    println!("HOST LINK TEST {:?}", link_result);
-    if link_result.is_err() {break}
-  }
-}
-
 fn test_equipment() {
-  // MESSAGE TEST
-  println!("{:?}", Into::<Vec<u8>>::into(
-    Into::<secs_ii::Item>::into(
-      secs_ii::items::AnyBinaryString::new(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).unwrap()
-    )
-  ));
-  println!("{:?}", Into::<secs_ii::Message>::into(
-    secs_ii::messages::s1::OnLineAck(secs_ii::items::OnLineAcknowledge::Accepted)
-  ));
   // CLIENT
   let parameter_settings: ParameterSettings = ParameterSettings::default();
   let client: Arc<GenericClient> = GenericClient::new(parameter_settings);
   // RX
-  let rx_message: Receiver<(u32, Message)> = client.connect("127.0.0.1:5000").unwrap();
+  let rx_message: Receiver<(HsmsMessageID, Message)> = client.connect("127.0.0.1:5000").unwrap();
   let rx_client: Arc<GenericClient> = client.clone();
   let rx_thread: JoinHandle<()> = thread::spawn(move || {  
-    for (system_bytes, data_message) in rx_message {
-      match (data_message.w, data_message.stream, data_message.function) {
+    for (id, data) in rx_message {
+      match (data.w, data.stream, data.function) {
         (true, 1, 3) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               stream: 1,
               function: 4,
@@ -62,7 +35,7 @@ fn test_equipment() {
         },
         (true, 1, 11) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               stream: 1,
               function: 12,
@@ -73,7 +46,7 @@ fn test_equipment() {
         },
         (true, 1, 13) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               w: false,
               stream: 1,
@@ -90,7 +63,7 @@ fn test_equipment() {
         },
         (true, 1, 17) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               w: false,
               stream: 1,
@@ -101,7 +74,7 @@ fn test_equipment() {
         },
         (true, 1, 21) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               w: false,
               stream: 1,
@@ -112,7 +85,7 @@ fn test_equipment() {
         },
         (true, 1, 23) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               w: false,
               stream: 1,
@@ -123,7 +96,7 @@ fn test_equipment() {
         },
         (true, 2, 13) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               w: false,
               stream: 2,
@@ -134,7 +107,7 @@ fn test_equipment() {
         },
         (true, 2, 29) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               w: false,
               stream: 2,
@@ -145,7 +118,7 @@ fn test_equipment() {
         },
         (true, 5, 5) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               w: false,
               stream: 5,
@@ -156,7 +129,7 @@ fn test_equipment() {
         },
         (true, 5, 7) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               w: false,
               stream: 5,
@@ -167,7 +140,7 @@ fn test_equipment() {
         },
         (true, 7, 19) => {
           rx_client.data(
-            Some(system_bytes),
+            id,
             Message {
               w: false,
               stream: 7,
@@ -183,6 +156,7 @@ fn test_equipment() {
   // TX
   let tx_client: Arc<GenericClient> = client.clone();
   let tx_thread: JoinHandle<()> = thread::spawn(move || {
+    let mut system: u32 = 0;
     loop {
       //DATA TEST
       /*thread::sleep(Duration::from_secs(5));
@@ -197,7 +171,8 @@ fn test_equipment() {
       println!("DATA TEST {:?}", data_result);
       if let Err(_) = data_result {break}*/
       //LINK TEST
-      let link_result: Result<(), ConnectionStateTransition> = tx_client.linktest().join().unwrap();
+      let link_result: Result<(), ConnectionStateTransition> = tx_client.linktest(system).join().unwrap();
+      system = system + 1;
       println!("EQUIPMENT LINK TEST {:?}", link_result);
       if link_result.is_err() {break}
       thread::sleep(Duration::from_secs(5));
@@ -205,4 +180,25 @@ fn test_equipment() {
   });
   rx_thread.join().unwrap();
   tx_thread.join().unwrap();
+}
+
+fn _test_host() {
+  // CLIENT
+  let parameter_settings: ParameterSettings = ParameterSettings {
+    connect_mode: ConnectionMode::Active,
+    ..Default::default()
+  };
+  let client: Arc<GenericClient> = GenericClient::new(parameter_settings);
+  let _ = client.connect("127.0.0.1:5000").unwrap();
+  thread::sleep(Duration::from_millis(5000));
+  let mut system: u32 = 0;
+  client.select(HsmsMessageID{session: 0, system}).join().unwrap().unwrap();
+  system = system + 1;
+  loop {
+    thread::sleep(Duration::from_secs(2));
+    let link_result: Result<(), ConnectionStateTransition> = client.linktest(system).join().unwrap();
+    system = system + 1;
+    println!("HOST LINK TEST {:?}", link_result);
+    if link_result.is_err() {break}
+  }
 }
