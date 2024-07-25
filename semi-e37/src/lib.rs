@@ -581,27 +581,23 @@ impl PrimitiveClient {
   pub fn disconnect(
     self: &Arc<Self>
   ) -> Result<(), ConnectionStateTransition> {
-    println!("PrimitiveClient::disconnect");
-    //Read Connection State
     {
       let connection_state = self.connection_state.read().unwrap();
       match connection_state.deref() {
-        //CONNECTED
+        // IS: CONNECTED
         ConnectionState::Connected(stream) => {
-          //Shutdown TCP/IP Connection
-          //This should cause all read locks on the connection state to release.
+          println!("PrimitiveClient::disconnect");
+          // TCP: SHUTDOWN
+          // This should cause all read locks on the connection state to release.
           let _ = stream.shutdown(Shutdown::Both);
         },
-        //NOT CONNECTED: Error
+        // IS: NOT CONNECTED
         _ => return Err(ConnectionStateTransition::None),
       }
     }
-    //Change Connection State
-    {
-      let mut connection_state = self.connection_state.write().unwrap();
-      *connection_state.deref_mut() = ConnectionState::NotConnected;
-    }
-    //TODO: Clear Outbox
+    // TO: NOT CONNECTED
+    let mut connection_state = self.connection_state.write().unwrap();
+    *connection_state.deref_mut() = ConnectionState::NotConnected;
     Ok(())
   }
 }
@@ -681,13 +677,13 @@ impl GenericClient {
   pub fn connect(
     self: &Arc<Self>,
     entity: &str,
-  ) -> Result<Receiver<secs_ii::Message>, Error> {
+  ) -> Result<Receiver<(u32, secs_ii::Message)>, Error> {
     println!("GenericClient::connect");
     //Connect Primitive
     let (rx_receiver, tx_sender) = self.primitive_client.connect(entity)?;
     *self.tx_sender.lock().unwrap().deref_mut() = Some(tx_sender.clone());
     //Create Channel
-    let (data_sender, data_receiver) = channel::<secs_ii::Message>();
+    let (data_sender, data_receiver) = channel::<(u32, secs_ii::Message)>();
     //Start RX Thread
     let clone: Arc<GenericClient> = self.clone();
     thread::spawn(move || {clone.rx_handle(rx_receiver, tx_sender, data_sender)});
@@ -768,7 +764,7 @@ pub fn rx(
   }
   //Finish
   println!(
-    "rx {: >5} {: >3}{} {: >3} {: >3} {: >3} {: >10} {:?}",
+    "rx {: >4X} {: >3}{} {: >3} {: >2X} {: >2X} {: >8X} {:?}",
     u16::from_be_bytes(message_buffer[0..2].try_into().unwrap()),
     &message_buffer[2] & 0b0111_1111,
     if (&message_buffer[2] & 0b1000_0000) > 0 {'W'} else {' '},
@@ -798,7 +794,7 @@ pub fn tx(
   stream.write_all(&length_buffer)?;
   stream.write_all(&message_buffer)?;
   println!(
-    "tx {: >5} {: >3}{} {: >3} {: >3} {: >3} {: >10} {:?}",
+    "tx {: >4X} {: >3}{} {: >3} {: >2X} {: >2X} {: >8X} {:?}",
     u16::from_be_bytes(message_buffer[0..2].try_into().unwrap()),
     &message_buffer[2] & 0b0111_1111,
     if (&message_buffer[2] & 0b1000_0000) > 0 {'W'} else {' '},
@@ -1067,7 +1063,7 @@ impl GenericClient {
     self: &Arc<Self>,
     rx_receiver: Receiver<HsmsMessage>,
     tx_sender: Sender<HsmsMessage>,
-    rx_sender: Sender<secs_ii::Message>,
+    rx_sender: Sender<(u32, secs_ii::Message)>,
   ) {
     println!("GenericClient::rx_handle start");
     for rx_message in rx_receiver {
@@ -1080,7 +1076,7 @@ impl GenericClient {
               // RX: Primary Data Message
               if data.function % 2 == 1 {
                 // INBOX: New Transaction
-                if rx_sender.send(data).is_err() {break}
+                if rx_sender.send((rx_message.system, data)).is_err() {break}
               }
               // RX: Response Data Message
               else {
@@ -1379,6 +1375,7 @@ impl GenericClient {
   /// [T3]:                   ParameterSettings::t3
   pub fn data(
     self: &Arc<Self>,
+    system: Option<u32>,
     message: secs_ii::Message,
   ) -> JoinHandle<Result<Option<HsmsMessage>, ConnectionStateTransition>> {
     println!("GenericClient::data");
@@ -1394,8 +1391,8 @@ impl GenericClient {
               // TX: Data Message
               match clone.tx_handle(
                 HsmsMessage {
-                  session_id: *session_id,
-                  system: 0,
+                  session_id: 1, //TODO: *session_id | VALUE OF 1 ONLY APPLICABLE TO HSMS-SS FOR TESTING
+                  system: match system{Some(value) => value, None => 0}, // TODO: Number generation for "None" case
                   contents: HsmsMessageContents::DataMessage(message),
                 },
                 reply_expected,

@@ -612,8 +612,8 @@ impl From<Item> for Vec<u8> {
 impl TryFrom<Vec<u8>> for Item {
   type Error = Error;
 
-  fn try_from(_value: Vec<u8>) -> Result<Self, Self::Error> {
-    todo!()
+  fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+    Ok(Item::Binary(value)) // TODO: FIX THIS
   }
 }
 
