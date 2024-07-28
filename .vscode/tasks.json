@@ -11,7 +11,25 @@
         "kind": "build",
         "isDefault": true
       },
-      "label": "rust: cargo build"
+      "label": "Cargo Build"
+    },
+    {
+      "type": "cargo",
+      "command": "doc",
+      "args": [
+        "-p", "secs-ii",
+        "-p", "gem",
+        "-p", "hsms",
+        "--no-deps",
+        "--open"
+      ],
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "group": {
+        "kind": "none"
+      },
+      "label": "Cargo Doc"
     }
   ]
 }

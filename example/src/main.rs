@@ -2,23 +2,23 @@
 #![feature(ascii_char_variants)]
 
 use std::{ascii::Char::*, sync::{mpsc::Receiver, Arc}, thread::{self, JoinHandle}, time::Duration};
-use hsms::{ConnectionMode, ConnectionStateTransition, GenericClient, HsmsMessageID, ParameterSettings};
+use hsms::{ConnectionMode, ConnectionStateTransition, HsmsClient, HsmsMessageID, ParameterSettings};
 use secs_ii::{Message, Item};
 
 fn main() {
   let equipment = thread::spawn(|| {test_equipment();});
-  //let host = thread::spawn(|| {test_host();});
+  let host = thread::spawn(|| {test_host();});
   let _ = equipment.join();
-  //let _ = host.join();
+  let _ = host.join();
 }
 
 fn test_equipment() {
   // CLIENT
   let parameter_settings: ParameterSettings = ParameterSettings::default();
-  let client: Arc<GenericClient> = GenericClient::new(parameter_settings);
+  let client: Arc<HsmsClient> = HsmsClient::new(parameter_settings);
   // RX
   let rx_message: Receiver<(HsmsMessageID, Message)> = client.connect("127.0.0.1:5000").unwrap();
-  let rx_client: Arc<GenericClient> = client.clone();
+  let rx_client: Arc<HsmsClient> = client.clone();
   let rx_thread: JoinHandle<()> = thread::spawn(move || {  
     for (id, data) in rx_message {
       match (data.w, data.stream, data.function) {
@@ -154,7 +154,7 @@ fn test_equipment() {
     }
   });
   // TX
-  let tx_client: Arc<GenericClient> = client.clone();
+  let tx_client: Arc<HsmsClient> = client.clone();
   let tx_thread: JoinHandle<()> = thread::spawn(move || {
     let mut system: u32 = 0;
     loop {
@@ -172,33 +172,37 @@ fn test_equipment() {
       if let Err(_) = data_result {break}*/
       //LINK TEST
       let link_result: Result<(), ConnectionStateTransition> = tx_client.linktest(system).join().unwrap();
-      system = system + 1;
+      system += 1;
       println!("EQUIPMENT LINK TEST {:?}", link_result);
       if link_result.is_err() {break}
-      thread::sleep(Duration::from_secs(5));
+      if system == 10 || link_result.is_err() {break}
+      thread::sleep(Duration::from_secs(1));
     }
+    tx_client.disconnect();
   });
   rx_thread.join().unwrap();
   tx_thread.join().unwrap();
 }
 
-fn _test_host() {
+fn test_host() {
   // CLIENT
   let parameter_settings: ParameterSettings = ParameterSettings {
     connect_mode: ConnectionMode::Active,
     ..Default::default()
   };
-  let client: Arc<GenericClient> = GenericClient::new(parameter_settings);
+  let client: Arc<HsmsClient> = HsmsClient::new(parameter_settings);
   let _ = client.connect("127.0.0.1:5000").unwrap();
   thread::sleep(Duration::from_millis(5000));
   let mut system: u32 = 0;
   client.select(HsmsMessageID{session: 0, system}).join().unwrap().unwrap();
-  system = system + 1;
+  system += 1;
   loop {
-    thread::sleep(Duration::from_secs(2));
     let link_result: Result<(), ConnectionStateTransition> = client.linktest(system).join().unwrap();
-    system = system + 1;
+    system += 1;
     println!("HOST LINK TEST {:?}", link_result);
     if link_result.is_err() {break}
+    //if system == 10 || link_result.is_err() {break}
+    thread::sleep(Duration::from_secs(1));
   }
+  client.disconnect();
 }

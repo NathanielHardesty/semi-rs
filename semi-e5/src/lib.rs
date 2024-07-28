@@ -137,7 +137,7 @@ pub enum Error {
   /// 
   /// [Message]:         messages
   /// [Generic Message]: Message
-  /// [Message Body]:    Message::body
+  /// [Message Body]:    Message::text
   WrongFormat,
 }
 
