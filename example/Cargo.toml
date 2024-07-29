@@ -6,6 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hsms = {path = "../semi-e37", version = "0.1.0"}
-secs-ii = {path = "../semi-e5", version = "0.1.0"}
-gem = {path = "../semi-e30", version = "0.1.0"}
+semi_e5 = {path = "../semi_e5", version = "0.1.0"}
+semi_e37 = {path = "../semi_e37", version = "0.1.0"}

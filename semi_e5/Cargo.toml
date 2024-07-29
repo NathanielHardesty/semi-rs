@@ -1,0 +1,18 @@
+[package]
+name = "semi_e5"
+version = "0.1.0"
+
+authors = ["Nathaniel Hardesty"]
+categories = ["encoding"]
+description = "SEMI Equipment Communications Standard 2 - Message Content"
+#documentation
+edition = "2021"
+#include
+keywords = ["protocol", "network", "networking", "semi"]
+#license
+repository = "https://github.com/NathanielHardesty/semi-rs"
+readme = "readme.md"
+rust-version = "1.79"
+
+[dependencies]
+num_enum = "0.7.2"

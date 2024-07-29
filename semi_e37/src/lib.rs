@@ -3,8 +3,8 @@
 //! - **[SEMI E37]-1109**
 //! - **[SEMI E37].1-0702**
 //! 
-//! Codebase will be updated to reflect more up-to-date SEMI standards if/when
-//! they can be acquired for this purpose.
+//! This third-party codebase will be updated to reflect more up-to-date SEMI
+//! standards if/when they can be acquired for this purpose.
 //! 
 //! ---------------------------------------------------------------------------
 //! 
@@ -44,7 +44,8 @@
 //! by any subsidiary standards.
 //! 
 //! To use the HSMS Generic Services:
-//! - Build [HSMS Message]s which use [HSMS Message Contents]:
+//! - Build [HSMS Message]s which use an [HSMS Message ID] and
+//!   [HSMS Message Contents]:
 //!   - [Data Message]
 //!   - [Select.req]
 //!   - [Select.rsp]
@@ -117,6 +118,7 @@
 //! [PASSIVE]:                        ConnectionMode::Passive
 //! [ACTIVE]:                         ConnectionMode::Active
 //! [HSMS Message]:                   HsmsMessage
+//! [HSMS Message ID]:                HsmsMessageID
 //! [HSMS Message Contents]:          HsmsMessageContents
 //! [Data Message]:                   HsmsMessageContents::DataMessage
 //! [Select.req]:                     HsmsMessageContents::SelectRequest
@@ -139,9 +141,6 @@
 //! [HSMS Reject Procedure]:          HsmsClient::reject
 //! [Presentation Type]:              PresentationType
 //! [Session Type]:                   SessionType
-
-#![crate_name = "hsms"]
-#![crate_type = "lib"]
 
 use std::{
   collections::HashMap,
@@ -251,7 +250,7 @@ impl TryFrom<Vec<u8>> for PrimitiveMessage {
 /// A 10 byte field describing the contents of a [Primitive Message].
 /// 
 /// [Primitive Message]: PrimitiveMessage
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PrimitiveMessageHeader {
   /// ### SESSION ID
   /// **Based on SEMI E37-1109§8.2.6.1**
@@ -622,7 +621,14 @@ impl PrimitiveClient {
   /// Serializes a [Primitive Message] and transmits it over the TCP/IP
   /// connection.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// The [Connection State] must be in the [CONNECTED] state to use this
+  /// procedure.
+  /// 
   /// [Primitive Message]: PrimitiveMessage
+  /// [Connection State]:  ConnectionState
+  /// [CONNECTED]:         ConnectionState::Connected
   pub fn transmit(
     self: &Arc<Self>,
     message: PrimitiveMessage,
@@ -721,7 +727,7 @@ impl Default for ConnectionState {
 /// [Connection Mode]:             ConnectionMode
 /// [PASSIVE]:                     ConnectionMode::Passive
 /// [ACTIVE]:                      ConnectionMode::Active
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ConnectionMode {
   /// ### PASSIVE
   /// **Based on SEMI E37-1109§6.3.2**
@@ -769,6 +775,7 @@ impl Default for ConnectionMode {
 /// [Presentation Type]:     PresentationType
 /// [HSMS Message ID]:       HsmsMessageID
 /// [HSMS Message Contents]: HsmsMessageContents
+#[derive(Clone, Debug)]
 pub struct HsmsMessage {
   pub id: HsmsMessageID,
   pub contents: HsmsMessageContents,
@@ -923,18 +930,18 @@ impl TryFrom<PrimitiveMessage> for HsmsMessage {
       },
       contents: match message.header.session_type {
         0 => {
-          HsmsMessageContents::DataMessage(secs_ii::Message{
+          HsmsMessageContents::DataMessage(semi_e5::Message{
             stream   : message.header.byte_2 & 0b0111_1111,
             function : message.header.byte_3,
             w        : message.header.byte_2 & 0b1000_0000 > 0,
-            text     : match secs_ii::Item::try_from(message.text) {
+            text     : match semi_e5::Item::try_from(message.text) {
               // Valid Item
               Ok(text) => Some(text),
               // Invalid Item
               Err(error) => {
                 match error {
                   // Empty Text: Considered Valid Here
-                  secs_ii::Error::EmptyText => {None},
+                  semi_e5::Error::EmptyText => {None},
                   // Other Error: Malformed Data
                   _ => {return Err(RejectReason::MalformedData)}
                 }
@@ -1062,7 +1069,7 @@ pub enum HsmsMessageContents {
   /// [HSMS Message]:   HsmsMessage
   /// [Session Type]:   SessionType
   /// [Data Procedure]: HsmsClient::data
-  DataMessage(secs_ii::Message) = SessionType::DataMessage as u8,
+  DataMessage(semi_e5::Message) = SessionType::DataMessage as u8,
 
   /// ## SELECT REQUEST
   /// **Based on SEMI E37-1109§8.3.4**
@@ -1254,12 +1261,12 @@ impl HsmsClient {
   pub fn connect(
     self: &Arc<Self>,
     entity: &str,
-  ) -> Result<Receiver<(HsmsMessageID, secs_ii::Message)>, Error> {
+  ) -> Result<Receiver<(HsmsMessageID, semi_e5::Message)>, Error> {
     println!("HsmsClient::connect");
     // Connect Primitive
     let rx_receiver = self.primitive_client.connect(entity, self.parameter_settings.connect_mode, self.parameter_settings.t5, self.parameter_settings.t8)?;
     // Create Channel
-    let (data_sender, data_receiver) = channel::<(HsmsMessageID, secs_ii::Message)>();
+    let (data_sender, data_receiver) = channel::<(HsmsMessageID, semi_e5::Message)>();
     // Start RX Thread
     let clone: Arc<HsmsClient> = self.clone();
     thread::spawn(move || {clone.rx_handle(rx_receiver, data_sender)});
@@ -1457,7 +1464,7 @@ impl HsmsClient {
   fn rx_handle(
     self: &Arc<Self>,
     rx_receiver: Receiver<PrimitiveMessage>,
-    rx_sender: Sender<(HsmsMessageID, secs_ii::Message)>,
+    rx_sender: Sender<(HsmsMessageID, semi_e5::Message)>,
   ) {
     println!("HsmsClient::rx_handle start");
     for primitive_message in rx_receiver {
@@ -1793,43 +1800,46 @@ impl HsmsClient {
   pub fn data(
     self: &Arc<Self>,
     id: HsmsMessageID,
-    message: secs_ii::Message,
+    message: semi_e5::Message,
   ) -> JoinHandle<Result<Option<HsmsMessage>, ConnectionStateTransition>> {
     println!("HsmsClient::data");
     let clone: Arc<HsmsClient> = self.clone();
     let reply_expected = message.function % 2 == 1 && message.w;
     thread::spawn(move || {
-      match clone.selection_state.read().unwrap().deref() {
-        // IS: SELECTED
-        SelectionState::Selected(_session_id) => {
-          // TX: Data Message
-          match clone.tx_handle(
-            HsmsMessage {
-              id,
-              contents: HsmsMessageContents::DataMessage(message),
-            },
-            reply_expected,
-            clone.parameter_settings.t3,
-          )?{
-            // RX: Valid
-            Some(rx_message) => Ok(Some(rx_message)),
-            // RX: Invalid
-            None => {
-              // Reply Expected
-              if reply_expected {
-                // TO: NOT CONNECTED
-                Err(clone.disconnect())
-              }
-              // Reply Not Expected
-              else {
-                Ok(None)
-              }
-            },
-          }
-        },
-        // IS: NOT SELECTED
-        _ => Err(ConnectionStateTransition::None),
+      'lock: {
+        match clone.selection_state.read().unwrap().deref() {
+          // IS: SELECTED
+          SelectionState::Selected(_session_id) => {
+            // TX: Data Message
+            match clone.tx_handle(
+              HsmsMessage {
+                id,
+                contents: HsmsMessageContents::DataMessage(message),
+              },
+              reply_expected,
+              clone.parameter_settings.t3,
+            )?{
+              // RX: Valid
+              Some(rx_message) => return Ok(Some(rx_message)),
+              // RX: Invalid
+              None => {
+                // Reply Expected
+                if reply_expected {
+                  // TO: NOT CONNECTED
+                  break 'lock;
+                }
+                // Reply Not Expected
+                else {
+                  return Ok(None);
+                }
+              },
+            }
+          },
+          // IS: NOT SELECTED
+          _ => return Err(ConnectionStateTransition::None),
+        }
       }
+      Err(clone.disconnect())
     })
   }
 
@@ -2154,7 +2164,7 @@ impl HsmsClient {
 /// [Select Procedure]:   HsmsClient::select
 /// [Deselect Procedure]: HsmsClient::deselect
 /// [Separate Procedure]: HsmsClient::separate
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SelectionState {
   /// ### NOT SELECTED
   /// **Based on SEMI E37-1109§5.5.2.1**
@@ -2224,7 +2234,7 @@ impl Default for SelectionState {
 /// 
 /// [HSMS]:        crate
 /// [HSMS Client]: HsmsClient
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ParameterSettings {
   /// ### CONNECT MODE
   /// 

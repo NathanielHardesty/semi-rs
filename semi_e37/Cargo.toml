@@ -1,0 +1,19 @@
+[package]
+name = "semi_e37"
+version = "0.1.0"
+
+authors = ["Nathaniel Hardesty"]
+categories = ["network-programming"]
+description = "High-Speed SECS Message Services"
+#documentation
+edition = "2021"
+#include
+keywords = ["protocol", "network", "networking", "client", "semi"]
+#license
+repository = "https://github.com/NathanielHardesty/semi-rs"
+readme = "readme.md"
+rust-version = "1.79"
+
+[dependencies]
+oneshot = "0.1.6"
+semi_e5 = {path = "../semi_e5", version = "0.1.0"}

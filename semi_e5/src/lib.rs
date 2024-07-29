@@ -2,8 +2,8 @@
 //! **Based on:**
 //! - **[SEMI E5]-0712**
 //! 
-//! Codebase will be updated to reflect more up-to-date SEMI standards if/when
-//! they can be acquired for this purpose.
+//! This third-party codebase will be updated to reflect more up-to-date SEMI
+//! standards if/when they can be acquired for this purpose.
 //! 
 //! ---------------------------------------------------------------------------
 //! 
@@ -11,7 +11,7 @@
 //! communications language between semiconductor equipment, particularly as
 //! understood by the GEM ([SEMI E30]) Application Protocol
 //! (together known as SECS/GEM). Common Session Protocols for transporting
-//! [SECS-II] messages include [SECS-I] ([SEMI E4]) and [HSMS] ([SEMI E37]).
+//! [SECS-II] messages include SECS-I ([SEMI E4]) and HSMS ([SEMI E37]).
 //! 
 //! ---------------------------------------------------------------------------
 //! 
@@ -21,9 +21,6 @@
 //! [SEMI E37]: https://store-us.semi.org/products/e03700-semi-e37-high-speed-secs-message-services-hsms-generic-services
 //! 
 //! [SECS-II]:  crate
-
-#![crate_name = "secs_ii"]
-#![crate_type = "lib"]
 
 #![feature(ascii_char)]
 #![feature(ascii_char_variants)]
@@ -193,8 +190,8 @@ pub enum Item {
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// Single-byte quantity where a value of 0 is equivalent to 'true' and any
-  /// non-zero value is equivalent to 'false'.
+  /// Single-byte quantity where a value of 0 is equivalent to 'false' and any
+  /// non-zero value is equivalent to 'true'.
   Boolean(Vec<bool>) = 0b001001_00,
 
   /// ### ASCII
@@ -327,21 +324,8 @@ pub enum Item {
   /// 4-byte integer.
   Unsigned4(Vec<u32>) = 0b101100_00,
 }
-
-/// ## OPTIONAL LIST
-/// 
-/// Represents a List with either a set number of elements, or acceptably 0
-/// elements in certain cases. The intent is that the type T will be a tuple
-/// representing a heterogenous list of elements.
-pub struct OptionList<T>(pub Option<T>);
-
-/// ## VECTORIZED LIST
-/// 
-/// Represents a List with a variable number of elements of the same structure.
-pub struct VecList<T>(pub Vec<T>);
-
-/// ## ITEM -> BINARY DATA
 impl From<Item> for Vec<u8> {
+  /// ## ITEM -> BINARY DATA
   fn from(item: Item) -> Self {
     let mut vec = vec![];
     match item {
@@ -607,15 +591,179 @@ impl From<Item> for Vec<u8> {
     vec
   }
 }
-
-/// ## BINARY DATA -> ITEM
 impl TryFrom<Vec<u8>> for Item {
   type Error = Error;
 
-  fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-    Ok(Item::Binary(value)) // TODO: FIX THIS
+  /// ## BINARY DATA -> ITEM
+  fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+    fn convert(data: &mut std::slice::Iter<u8>) -> Option<Item> {
+      let byte = *data.next()?;
+      let item = byte & 0b111111_00;
+      let length_length = byte & 0b000000_11;
+      if length_length == 0 {return None}
+      let length: u32 = {
+        let mut bytes = [0u8;4];
+        for i in (4-length_length)..4 {
+          bytes[i as usize] = *data.next()?;
+        }
+        u32::from_be_bytes(bytes)
+      };
+      match item {
+        // List, this will involve recursion
+        0b000000_00 => {
+          let mut vec: Vec<Item> = vec![];
+          for _ in 0..length {vec.push(convert(data)?);}
+          Some(Item::List(vec))
+        },
+        // Binary
+        0b001000_00 => {
+          let mut vec: Vec<u8> = vec![];
+          for _ in 0..length {vec.push(*data.next()?);}
+          Some(Item::Binary(vec))
+        },
+        // Boolean
+        0b001001_00 => {
+          let mut vec: Vec<bool> = vec![];
+          for _ in 0..length {vec.push(*data.next()? > 0);}
+          Some(Item::Boolean(vec))
+        },
+        // ASCII
+        0b010000_00 => {
+          let mut vec: Vec<Char> = vec![];
+          for _ in 0..length {vec.push(Char::from_u8(*data.next()?)?);}
+          Some(Item::Ascii(vec))
+        },
+        // JIS-8 (TODO)
+        0b010001_00 => None,
+        // Localized String (TODO)
+        0b010010_00 => None,
+        // 8-Byte Signed Integer
+        0b011000_00 => {
+          if length % 8 != 0 {return None}
+          let mut vec: Vec<i64> = vec![];
+          for _ in 0..length {
+            let mut bytes = [0u8;8];
+            for i in 0..8 {bytes[i] = *data.next()?}
+            vec.push(i64::from_be_bytes(bytes));
+          }
+          Some(Item::Signed8(vec))
+        },
+        // 1-Byte Signed Integer
+        0b011001_00 => {
+          let mut vec: Vec<i8> = vec![];
+          for _ in 0..length {vec.push(*data.next()? as i8);}
+          Some(Item::Signed1(vec))
+        },
+        // 2-Byte Signed Integer
+        0b011010_00 => {
+          if length % 2 != 0 {return None}
+          let mut vec: Vec<i16> = vec![];
+          for _ in 0..length {
+            let mut bytes = [0u8;2];
+            for i in 0..2 {bytes[i] = *data.next()?}
+            vec.push(i16::from_be_bytes(bytes));
+          }
+          Some(Item::Signed2(vec))
+        },
+        // 4-Byte Signed Integer
+        0b011100_00 => {
+          if length % 4 != 0 {return None}
+          let mut vec: Vec<i32> = vec![];
+          for _ in 0..length {
+            let mut bytes = [0u8;4];
+            for i in 0..4 {bytes[i] = *data.next()?}
+            vec.push(i32::from_be_bytes(bytes));
+          }
+          Some(Item::Signed4(vec))
+        },
+        // 8-Byte Floating Point Number
+        0b100000_00 => {
+          if length % 8 != 0 {return None}
+          let mut vec: Vec<f64> = vec![];
+          for _ in 0..length {
+            let mut bytes = [0u8;8];
+            for i in 0..8 {bytes[i] = *data.next()?}
+            vec.push(f64::from_be_bytes(bytes));
+          }
+          Some(Item::Float8(vec))
+        },
+        // 4-Byte Floating Point Number
+        0b100100_00 => {
+          if length % 4 != 0 {return None}
+          let mut vec: Vec<f32> = vec![];
+          for _ in 0..length {
+            let mut bytes = [0u8;4];
+            for i in 0..4 {bytes[i] = *data.next()?}
+            vec.push(f32::from_be_bytes(bytes));
+          }
+          Some(Item::Float4(vec))
+        },
+        // 8-Byte Unsigned Integer
+        0b101000_00 => {
+          if length % 8 != 0 {return None}
+          let mut vec: Vec<u64> = vec![];
+          for _ in 0..length {
+            let mut bytes = [0u8;8];
+            for i in 0..8 {bytes[i] = *data.next()?}
+            vec.push(u64::from_be_bytes(bytes));
+          }
+          Some(Item::Unsigned8(vec))
+        },
+        // 1-Byte Unsigned Integer
+        0b101001_00 => {
+          let mut vec: Vec<u8> = vec![];
+          for _ in 0..length {vec.push(*data.next()?);}
+          Some(Item::Unsigned1(vec))
+        },
+        // 2-Byte Unsigned Integer
+        0b101010_00 => {
+          if length % 8 != 0 {return None}
+          let mut vec: Vec<u64> = vec![];
+          for _ in 0..length {
+            let mut bytes = [0u8;8];
+            for i in 0..8 {bytes[i] = *data.next()?}
+            vec.push(u64::from_be_bytes(bytes));
+          }
+          Some(Item::Unsigned8(vec))
+        },
+        // 4-Byte Unsigned Integer
+        0b101100_00 => {
+          if length % 8 != 0 {return None}
+          let mut vec: Vec<u32> = vec![];
+          for _ in 0..length {
+            let mut bytes = [0u8;4];
+            for i in 0..4 {bytes[i] = *data.next()?}
+            vec.push(u32::from_be_bytes(bytes));
+          }
+          Some(Item::Unsigned4(vec))
+        },
+        // Unrecognized
+        _ => None
+      }
+    }
+
+    if data.is_empty() {return Err(Error::EmptyText)};
+    let mut iterator: std::slice::Iter<u8> = data.iter();
+    let result: Option<Item> = convert(&mut iterator);
+    if iterator.next().is_some() {return Err(Error::InvalidText)}
+    match result {
+      Some(item) => Ok(item),
+      None => Err(Error::InvalidText),
+    }
   }
 }
+
+/// ## OPTIONAL LIST
+/// 
+/// Represents a List with either a set number of elements, or acceptably 0
+/// elements in certain cases. The intent is that the type T will be a tuple
+/// representing a heterogenous list of elements.
+pub struct OptionList<T>(pub Option<T>);
+
+/// ## VECTORIZED LIST
+/// 
+/// Represents a List with a variable number of elements of the same structure.
+pub struct VecList<T>(pub Vec<T>);
 
 /// ## ITEM -> EMPTY LIST
 impl TryFrom<Item> for () {

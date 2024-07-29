@@ -2,8 +2,8 @@
 #![feature(ascii_char_variants)]
 
 use std::{ascii::Char::*, sync::{mpsc::Receiver, Arc}, thread::{self, JoinHandle}, time::Duration};
-use hsms::{ConnectionMode, ConnectionStateTransition, HsmsClient, HsmsMessageID, ParameterSettings};
-use secs_ii::{Message, Item};
+use semi_e5::{Message, Item};
+use semi_e37::{ConnectionMode, ConnectionStateTransition, HsmsClient, HsmsMessage, HsmsMessageID, ParameterSettings};
 
 fn main() {
   let equipment = thread::spawn(|| {test_equipment();});
@@ -158,18 +158,6 @@ fn test_equipment() {
   let tx_thread: JoinHandle<()> = thread::spawn(move || {
     let mut system: u32 = 0;
     loop {
-      //DATA TEST
-      /*thread::sleep(Duration::from_secs(5));
-      let data_result: Result<Option<HsmsMessage>, ConnectionStateTransition> = tx_client.data(DataMessage {
-        session_id: 0,
-        w: true,
-        stream: 1,
-        function: 1,
-        system: 0xFFFF,
-        text: vec![],
-      }).join().unwrap();
-      println!("DATA TEST {:?}", data_result);
-      if let Err(_) = data_result {break}*/
       //LINK TEST
       let link_result: Result<(), ConnectionStateTransition> = tx_client.linktest(system).join().unwrap();
       system += 1;
@@ -192,16 +180,26 @@ fn test_host() {
   };
   let client: Arc<HsmsClient> = HsmsClient::new(parameter_settings);
   let _ = client.connect("127.0.0.1:5000").unwrap();
-  thread::sleep(Duration::from_millis(5000));
+  thread::sleep(Duration::from_millis(2000));
   let mut system: u32 = 0;
   client.select(HsmsMessageID{session: 0, system}).join().unwrap().unwrap();
   system += 1;
   loop {
-    let link_result: Result<(), ConnectionStateTransition> = client.linktest(system).join().unwrap();
+    let data_result: Result<Option<HsmsMessage>, ConnectionStateTransition> = client.data(
+      HsmsMessageID {
+        session: 0,
+        system,
+      },
+      Message {
+        stream: 1,
+        function: 13,
+        w: true,
+        text: None,
+      }
+    ).join().unwrap();
+    println!("HOST DATA TEST {:?}", data_result);
+    if data_result.is_err() {break}
     system += 1;
-    println!("HOST LINK TEST {:?}", link_result);
-    if link_result.is_err() {break}
-    //if system == 10 || link_result.is_err() {break}
     thread::sleep(Duration::from_secs(1));
   }
   client.disconnect();

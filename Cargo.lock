@@ -30,10 +30,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
 
 [[package]]
-name = "gem"
-version = "0.1.0"
-
-[[package]]
 name = "generator"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -51,14 +47,6 @@ name = "hashbrown"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
-
-[[package]]
-name = "hsms"
-version = "0.1.0"
-dependencies = [
- "oneshot",
- "secs-ii",
-]
 
 [[package]]
 name = "indexmap"
@@ -265,19 +253,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
-name = "secs-ii"
-version = "0.1.0"
-dependencies = [
- "num_enum",
-]
-
-[[package]]
 name = "secs-test"
 version = "0.1.0"
 dependencies = [
- "gem",
- "hsms",
- "secs-ii",
+ "semi_e37",
+ "semi_e5",
+]
+
+[[package]]
+name = "semi_e30"
+version = "0.1.0"
+
+[[package]]
+name = "semi_e37"
+version = "0.1.0"
+dependencies = [
+ "oneshot",
+ "semi_e5",
+]
+
+[[package]]
+name = "semi_e5"
+version = "0.1.0"
+dependencies = [
+ "num_enum",
 ]
 
 [[package]]

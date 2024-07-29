@@ -17,9 +17,9 @@
       "type": "cargo",
       "command": "doc",
       "args": [
-        "-p", "secs-ii",
-        "-p", "gem",
-        "-p", "hsms",
+        "-p", "semi_e5",
+        "-p", "semi_e30",
+        "-p", "semi_e37",
         "--no-deps",
         "--open"
       ],

@@ -1,17 +1,8 @@
 [package]
-name = "hsms"
+name = "semi_e30"
 version = "0.1.0"
 edition = "2021"
-
-#license
-#description
-#homepage
-#documentation
-#repository
-#readme
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-oneshot = "0.1.6"
-secs-ii = {path = "../semi-e5", version = "0.1.0"}
