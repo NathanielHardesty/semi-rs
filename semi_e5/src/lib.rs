@@ -15,6 +15,13 @@
 //! 
 //! ---------------------------------------------------------------------------
 //! 
+//! ## TO BE DONE
+//! 
+//! - Implement JIS-8 and "Localized" strings
+//! - Finish adding specific items
+//! - Finish adding messages to Stream 1
+//! - Add messages to Streams 1 through 21
+//! 
 //! [SEMI E4]:  https://store-us.semi.org/products/e00400-semi-e4-specification-for-semi-equipment-communications-standard-1-message-transfer-secs-i
 //! [SEMI E5]:  https://store-us.semi.org/products/e00500-semi-e5-specification-for-semi-equipment-communications-standard-2-message-content-secs-ii
 //! [SEMI E30]: https://store-us.semi.org/products/e03000-semi-e30-specification-for-the-generic-model-for-communications-and-control-of-manufacturing-equipment-gem
@@ -753,184 +760,6 @@ impl TryFrom<Vec<u8>> for Item {
   }
 }
 
-/// ## OPTIONAL LIST
-/// 
-/// Represents a List with either a set number of elements, or acceptably 0
-/// elements in certain cases. The intent is that the type T will be a tuple
-/// representing a heterogenous list of elements.
-pub struct OptionList<T>(pub Option<T>);
-
-/// ## VECTORIZED LIST
-/// 
-/// Represents a List with a variable number of elements of the same structure.
-pub struct VecList<T>(pub Vec<T>);
-
-/// ## ITEM -> EMPTY LIST
-impl TryFrom<Item> for () {
-  type Error = Error;
-
-  fn try_from(item: Item) -> Result<Self, Self::Error> {
-    match item {
-      Item::List(list) => {
-        if list.is_empty() {
-          Ok(())
-        } else {
-          Err(Error::WrongFormat)
-        }
-      },
-      _ => Err(Error::WrongFormat),
-    }
-  }
-}
-
-/// ## ITEM -> OPTIONAL LIST
-impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for OptionList<A> {
-  type Error = Error;
-
-  fn try_from(item: Item) -> Result<Self, Self::Error> {
-    match item {
-      Item::List(list) => {
-        if list.is_empty() {
-          Ok(Self(None))
-        } else {
-          Ok(Self(Some(Item::List(list).try_into()?)))
-        }
-      },
-      _ => Err(Error::WrongFormat),
-    }
-  }
-}
-
-/// ## ITEM -> VECTORIZED LIST
-impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for VecList<A> {
-  type Error = Error;
-
-  fn try_from(item: Item) -> Result<Self, Self::Error> {
-    match item {
-      Item::List(list) => {
-        let mut vec = vec![];
-        for list_item in list {
-          vec.push(list_item.try_into()?)
-        }
-        Ok(Self(vec))
-      },
-      _ => Err(Error::WrongFormat),
-    }
-  }
-}
-
-/// ## ITEM -> HETEROGENEOUS LIST (2 ELEMENTS)
-impl <
-  A: TryFrom<Item, Error = Error>,
-  B: TryFrom<Item, Error = Error>,
-> TryFrom<Item> for (A, B) {
-  type Error = Error;
-
-  fn try_from(item: Item) -> Result<Self, Self::Error> {
-    match item {
-      Item::List(list) => {
-        if list.len() == 2 {
-          Ok((
-            list[0].clone().try_into()?,
-            list[1].clone().try_into()?,
-          ))
-        } else {
-          Err(Error::WrongFormat)
-        }
-      },
-      _ => Err(Error::WrongFormat),
-    }
-  }
-}
-
-/// ## ITEM -> HETEROGENEOUS LIST (3 ELEMENTS)
-impl <
-  A: TryFrom<Item, Error = Error>,
-  B: TryFrom<Item, Error = Error>,
-  C: TryFrom<Item, Error = Error>,
-> TryFrom<Item> for (A, B, C) {
-  type Error = Error;
-
-  fn try_from(item: Item) -> Result<Self, Self::Error> {
-    match item {
-      Item::List(list) => {
-        if list.len() == 3 {
-          Ok((
-            list[0].clone().try_into()?,
-            list[1].clone().try_into()?,
-            list[2].clone().try_into()?,
-          ))
-        } else {
-          Err(Error::WrongFormat)
-        }
-      },
-      _ => Err(Error::WrongFormat),
-    }
-  }
-}
-
-// TODO: ITEM -> HETEROGENEOUS LIST, UP TO 15 ELEMENTS
-// NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
-
-/// ## EMPTY LIST -> ITEM
-impl From<()> for Item {
-  fn from(_empty_list: ()) -> Self {
-    Item::List(vec![])
-  }
-}
-
-/// ## OPTIONAL LIST -> ITEM
-impl<A: Into<Item>> From<OptionList<A>> for Item {
-  fn from(option_list: OptionList<A>) -> Self {
-    match option_list.0 {
-      Some(item) => item.into(),
-      None => Item::List(vec![]),
-    }
-  }
-}
-
-/// ## VECTORIZED LIST -> ITEM
-impl<A: Into<Item>> From<VecList<A>> for Item {
-  fn from(vec_list: VecList<A>) -> Self {
-    let mut vec = vec![];
-    for item in vec_list.0 {
-      vec.push(item.into())
-    }
-    Item::List(vec)
-  }
-}
-
-/// ## HETEROGENEOUS LIST (2 ELEMENTS) -> ITEM
-impl <
-  A: Into<Item>,
-  B: Into<Item>,
-> From<(A, B)> for Item {
-  fn from(value: (A, B)) -> Self {
-    Item::List(vec![
-      value.0.into(),
-      value.1.into(),
-    ])
-  }
-}
-
-/// ## HETEROGENEOUS LIST (3 ELEMENTS) -> ITEM
-impl <
-  A: Into<Item>,
-  B: Into<Item>,
-  C: Into<Item>,
-> From<(A, B, C)> for Item {
-  fn from(value: (A, B, C)) -> Self {
-    Item::List(vec![
-      value.0.into(),
-      value.1.into(),
-      value.2.into(),
-    ])
-  }
-}
-
-// TODO: HETEROGENEOUS LIST -> ITEM, UP TO 15 ELEMENTS
-// NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
-
 /// ## LOCALIZED STRING HEADER
 /// **Based on SEMI E5§9.4**
 #[repr(u16)]
@@ -967,6 +796,184 @@ pub mod items {
   use crate::Error::{self, *};
   use std::ascii::Char;
   use num_enum::{IntoPrimitive, TryFromPrimitive};
+
+  /// ## OPTIONAL LIST
+  /// 
+  /// Represents a List with either a set number of elements, or acceptably 0
+  /// elements in certain cases. The intent is that the type T will be a tuple
+  /// representing a heterogenous list of elements.
+  pub struct OptionList<T>(pub Option<T>);
+
+  /// ## VECTORIZED LIST
+  /// 
+  /// Represents a List with a variable number of elements of the same structure.
+  pub struct VecList<T>(pub Vec<T>);
+
+  /// ## ITEM -> EMPTY LIST
+  impl TryFrom<Item> for () {
+    type Error = Error;
+  
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::List(list) => {
+          if list.is_empty() {
+            Ok(())
+          } else {
+            Err(Error::WrongFormat)
+          }
+        },
+        _ => Err(Error::WrongFormat),
+      }
+    }
+  }
+
+  /// ## ITEM -> OPTIONAL LIST
+  impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for OptionList<A> {
+    type Error = Error;
+  
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::List(list) => {
+          if list.is_empty() {
+            Ok(Self(None))
+          } else {
+            Ok(Self(Some(Item::List(list).try_into()?)))
+          }
+        },
+        _ => Err(Error::WrongFormat),
+      }
+    }
+  }
+
+  /// ## ITEM -> VECTORIZED LIST
+  impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for VecList<A> {
+    type Error = Error;
+  
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::List(list) => {
+          let mut vec = vec![];
+          for list_item in list {
+            vec.push(list_item.try_into()?)
+          }
+          Ok(Self(vec))
+        },
+        _ => Err(Error::WrongFormat),
+      }
+    }
+  }
+
+  /// ## ITEM -> HETEROGENEOUS LIST (2 ELEMENTS)
+  impl <
+    A: TryFrom<Item, Error = Error>,
+    B: TryFrom<Item, Error = Error>,
+  > TryFrom<Item> for (A, B) {
+    type Error = Error;
+  
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::List(list) => {
+          if list.len() == 2 {
+            Ok((
+              list[0].clone().try_into()?,
+              list[1].clone().try_into()?,
+            ))
+          } else {
+            Err(Error::WrongFormat)
+          }
+        },
+        _ => Err(Error::WrongFormat),
+      }
+    }
+  }
+
+  /// ## ITEM -> HETEROGENEOUS LIST (3 ELEMENTS)
+  impl <
+    A: TryFrom<Item, Error = Error>,
+    B: TryFrom<Item, Error = Error>,
+    C: TryFrom<Item, Error = Error>,
+  > TryFrom<Item> for (A, B, C) {
+    type Error = Error;
+  
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::List(list) => {
+          if list.len() == 3 {
+            Ok((
+              list[0].clone().try_into()?,
+              list[1].clone().try_into()?,
+              list[2].clone().try_into()?,
+            ))
+          } else {
+            Err(Error::WrongFormat)
+          }
+        },
+        _ => Err(Error::WrongFormat),
+      }
+    }
+  }
+
+  // TODO: ITEM -> HETEROGENEOUS LIST, UP TO 15 ELEMENTS
+  // NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
+
+  /// ## EMPTY LIST -> ITEM
+  impl From<()> for Item {
+    fn from(_empty_list: ()) -> Self {
+      Item::List(vec![])
+    }
+  }
+  
+  /// ## OPTIONAL LIST -> ITEM
+  impl<A: Into<Item>> From<OptionList<A>> for Item {
+    fn from(option_list: OptionList<A>) -> Self {
+      match option_list.0 {
+        Some(item) => item.into(),
+        None => Item::List(vec![]),
+      }
+    }
+  }
+
+  /// ## VECTORIZED LIST -> ITEM
+  impl<A: Into<Item>> From<VecList<A>> for Item {
+    fn from(vec_list: VecList<A>) -> Self {
+      let mut vec = vec![];
+      for item in vec_list.0 {
+        vec.push(item.into())
+      }
+      Item::List(vec)
+    }
+  }
+
+  /// ## HETEROGENEOUS LIST (2 ELEMENTS) -> ITEM
+  impl <
+    A: Into<Item>,
+    B: Into<Item>,
+  > From<(A, B)> for Item {
+    fn from(value: (A, B)) -> Self {
+      Item::List(vec![
+        value.0.into(),
+        value.1.into(),
+      ])
+    }
+  }
+
+  /// ## HETEROGENEOUS LIST (3 ELEMENTS) -> ITEM
+  impl <
+    A: Into<Item>,
+    B: Into<Item>,
+    C: Into<Item>,
+  > From<(A, B, C)> for Item {
+    fn from(value: (A, B, C)) -> Self {
+      Item::List(vec![
+        value.0.into(),
+        value.1.into(),
+        value.2.into(),
+      ])
+    }
+  }
+
+  // TODO: HETEROGENEOUS LIST -> ITEM, UP TO 15 ELEMENTS
+  // NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
 
   /// ## DATA ITEM MACRO: SINGLE ACCEPTED FORMAT, VECTOR LENGTH 1
   macro_rules! singleformat {
@@ -1683,6 +1690,12 @@ pub mod messages {
   /// equipment, including its current mode, depletion of various consumable
   /// items, and the status of transfer operations.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Finish filling out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s1 {
     use crate::*;
@@ -2158,7 +2171,6 @@ pub mod messages {
     pub struct OnLineAck(pub OnLineAcknowledge);
     message_data!{OnLineAck, false, 1, 16}
   }
-  //TODO: Complete filling out stream's contents.
 
   /// # STREAM 2: EQUIPMENT CONTROL AND DIAGNOSTICS
   /// **Based on SEMI E5§10.6**
@@ -2178,6 +2190,12 @@ pub mod messages {
   /// 
   /// This functionality continues in [Stream 17].
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   /// [Stream 4]: crate::messages::s4
   /// [Stream 8]: crate::messages::s8
@@ -2185,7 +2203,6 @@ pub mod messages {
   /// [Stream 13]: crate::messages::s13
   /// [Stream 17]: crate::messages::s17
   pub mod s2 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 3: MATERIAL STATUS
   /// **Based on SEMI E5§10.7**
@@ -2196,9 +2213,14 @@ pub mod messages {
   /// to material, including carriers and material-in-process,
   /// time-to-completion information, and extraordinary material circumstances.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s3 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 4: MATERIAL CONTROL
   /// **Based on SEMI E5§10.8**
@@ -2208,9 +2230,14 @@ pub mod messages {
   /// [Message]s which deal with the original material control protocol and the
   /// newer protocol which supports [SEMI E32].
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s4 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 5: EXCEPTION HANDLING
   /// **Based on SEMI E5§10.9**
@@ -2250,10 +2277,15 @@ pub mod messages {
   /// [Message]s [S5F9] through [S5F15] provide extended capabilities for
   /// exception handling.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   /// [Stream 6]: crate::messages::s6
   pub mod s5 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 6: DATA COLLECTION
   /// **Based on SEMI E5§10.10**
@@ -2263,9 +2295,14 @@ pub mod messages {
   /// [Message]s which deal with in-process measurement and equipment
   /// monitoring.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s6 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 7: PROCESS PROGRAM MANAGEMENT
   /// **Based on SEMI E5§10.11**
@@ -2282,9 +2319,14 @@ pub mod messages {
   /// between the process program and the material to be processed with that
   /// program.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s7 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 8: CONTROL PROGRAM TRANSFER
   /// **Based on SEMI E5§10.12**
@@ -2295,9 +2337,14 @@ pub mod messages {
   /// to perform the control function or to execute the transmitted Process
   /// Program.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s8 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 9: SYSTEM ERRORS
   /// **Based on SEMI E5§10.13**
@@ -2311,9 +2358,14 @@ pub mod messages {
   /// The messages indicate either a Message Fault or a Communications Fault
   /// has occurred but do not indicate a Communications Failure has occurred.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s9 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 10: TERMINAL SERVICES
   /// **Based on SEMI E5§10.14**
@@ -2330,9 +2382,14 @@ pub mod messages {
   /// Management of human response times to information displayed on terminals
   /// is the responsibility of the host.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s10 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 11: DELETED
   /// **Based on SEMI E5§10.15**
@@ -2341,6 +2398,12 @@ pub mod messages {
   /// 
   /// The [Message]s in this stream have been deprecated and no longer appear
   /// in the standard as of 1989.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
   /// 
   /// [Message]: crate::Message
   pub mod s11 {}
@@ -2371,10 +2434,15 @@ pub mod messages {
   /// associated binning information.
   /// - Coordinate - An X/Y location and bin code for die on the wafer.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Complete this documentation
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s12 {}
-  //TODO: Fill out more documentation here.
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 13: DATA SET TRANSFER
   /// **Based on SEMI E5§10.17**
@@ -2385,10 +2453,15 @@ pub mod messages {
   /// 
   /// It is not intended to provide a general file access mechanism.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Complete this documentation
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s13 {}
-  //TODO: Fill out more documentation here.
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 14: OBJECT SERVICES
   /// **Based on SEMI E5§10.18**
@@ -2399,9 +2472,14 @@ pub mod messages {
   /// including obtaining information about objects and setting values for an
   /// object.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s14 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 15: RECIPE MANAGEMENT
   /// **Based on SEMI E5§10.19**
@@ -2421,9 +2499,14 @@ pub mod messages {
   /// whole, or the application of the recipe, and consists of a name/value
   /// pair.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s15 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 16: PROCESSING MANAGEMENT
   /// **Based on SEMI E5§10.20**
@@ -2451,9 +2534,14 @@ pub mod messages {
   /// is logically related from the host's viewpoint. It also provides
   /// mechanisms for specifying the destination for processed material.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s16 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 17: EQUIPMENT CONTROL AND DIAGNOSTICS
   /// **Based on SEMI E5§10.21**
@@ -2473,6 +2561,12 @@ pub mod messages {
   /// 
   /// This is a continuation of [Stream 2].
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   /// [Stream 2]: crate::messages::s2
   /// [Stream 4]: crate::messages::s4
@@ -2480,7 +2574,6 @@ pub mod messages {
   /// [Stream 10]: crate::messages::s10
   /// [Stream 13]: crate::messages::s13
   pub mod s17 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 18: SUBSYSTEM CONTROL AND DATA
   /// **Based on SEMI E5§10.22**
@@ -2493,9 +2586,14 @@ pub mod messages {
   /// Compared to similar mesages exchanged between equipment and host,
   /// subsystem messages are less complex.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   pub mod s18 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 19: RECIPE AND PARAMETER MANAGEMENT
   /// **Based on SEMI E5§10.23**
@@ -2538,17 +2636,37 @@ pub mod messages {
   /// 
   /// The definition of this stream exists in a newer version of the standard
   /// as compared to SEMI E5-0712.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Complete this documentation
+  /// - Fill out stream contents
   pub mod s20 {}
 
   /// # STREAM 21: ITEM TRANSFER
   /// 
   /// The definition of this stream exists in a newer version of the standard
   /// as compared to SEMI E5-0712.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Complete this documentation
+  /// - Fill out stream contents
   pub mod s21 {}
 }
 
 /// # UNITS OF MEASURE
 /// **Based on SEMI E5§12**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// ## TO BE DONE
+/// 
+/// - Fully implement this module.
 pub mod units {
   pub struct Unit {
     pub identifier: Identifier,
@@ -2762,4 +2880,3 @@ pub mod units {
 
   pub struct Suffix(pub u64);
 }
-//TODO: Fully implement units.
