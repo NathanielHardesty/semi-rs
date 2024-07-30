@@ -3,13 +3,18 @@
 
 use std::{ascii::Char::*, sync::{mpsc::Receiver, Arc}, thread::{self, JoinHandle}, time::Duration};
 use semi_e5::{Message, Item};
-use semi_e37::{ConnectionMode, ConnectionStateTransition, HsmsClient, HsmsMessage, HsmsMessageID, ParameterSettings};
+use semi_e37::{ConnectionMode, ConnectionStateTransition, HsmsClient, HsmsMessageID, ParameterSettings};
 
 fn main() {
+  test_data();
   let equipment = thread::spawn(|| {test_equipment();});
   let host = thread::spawn(|| {test_host();});
   let _ = equipment.join();
   let _ = host.join();
+}
+
+fn test_data() {
+  println!("{:?}", Item::try_from(vec![1, 1, 177, 4, 0, 0, 7, 237]))
 }
 
 fn test_equipment() {
@@ -19,8 +24,9 @@ fn test_equipment() {
   // RX
   let rx_message: Receiver<(HsmsMessageID, Message)> = client.connect("127.0.0.1:5000").unwrap();
   let rx_client: Arc<HsmsClient> = client.clone();
-  let rx_thread: JoinHandle<()> = thread::spawn(move || {  
+  let rx_thread: JoinHandle<()> = thread::spawn(move || {
     for (id, data) in rx_message {
+      println!("EQUIPMENT DATA RX {:?}", data);
       match (data.w, data.stream, data.function) {
         (true, 1, 3) => {
           rx_client.data(
@@ -185,7 +191,7 @@ fn test_host() {
   client.select(HsmsMessageID{session: 0, system}).join().unwrap().unwrap();
   system += 1;
   loop {
-    let data_result: Result<Option<HsmsMessage>, ConnectionStateTransition> = client.data(
+    let data_result: Result<Option<Message>, ConnectionStateTransition> = client.data(
       HsmsMessageID {
         session: 0,
         system,

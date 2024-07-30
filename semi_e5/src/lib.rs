@@ -1,4 +1,4 @@
-//! # SEMI EQUIPMENT COMMUNICATIONS STANDARD 2 MESSAGE CONTENT (SECS-II)
+//! # SEMI EQUIPMENT COMMUNICATIONS STANDARD 2 (SECS-II) MESSAGE CONTENT
 //! **Based on:**
 //! - **[SEMI E5]-0712**
 //! 
@@ -20,7 +20,19 @@
 //! - Implement JIS-8 and "Localized" strings
 //! - Finish adding specific items
 //! - Finish adding messages to Stream 1
-//! - Add messages to Streams 1 through 21
+//! - Add messages to Streams 2 through 21
+//! 
+//! ---------------------------------------------------------------------------
+//! 
+//! ## REFERENCED STANDARDS
+//! 
+//! - SEMI E4        - SEMI Equipment Communications Standard 1 (SECS-I) Message Transfer
+//! - SEMI E6        - Guide for Semiconductor Equipment Installation Documentation
+//! - SEMI E37       - High-Speed SECS Message Services (HSMS) Generic Services
+//! - SEMI E148      - Specification for Time Synchronization and Definition of the TS-Clock Object
+//! - ANSI X3.4-1977 - Code for Information Interchange (ASCII)
+//! - IEEE 754       - Standards for Binary Floating Point Arithmetic
+//! - JIS-6226       - JIS 8-bit Coded Character Set for Information Exchange
 //! 
 //! [SEMI E4]:  https://store-us.semi.org/products/e00400-semi-e4-specification-for-semi-equipment-communications-standard-1-message-transfer-secs-i
 //! [SEMI E5]:  https://store-us.semi.org/products/e00500-semi-e5-specification-for-semi-equipment-communications-standard-2-message-content-secs-ii
@@ -35,6 +47,7 @@
 #![allow(clippy::collapsible_match)]
 
 use std::ascii::Char;
+use encoding::{all::ISO_2022_JP, Encoding};
 
 /// ## GENERIC MESSAGE
 /// **Based on SEMI E5§6**
@@ -91,6 +104,7 @@ pub struct Message {
 /// 
 /// [Message]:         messages
 /// [Generic Message]: Message
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Error {
   /// ### EMPTY TEXT
   /// 
@@ -219,7 +233,7 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// JIS-8 character string.
-  Jis8(Vec<u8>) = 0b010001_00,
+  Jis8(String) = 0b010001_00,
 
   /// ### LOCALIZED STRING
   /// **Based on SEMI E5§9.2.2**
@@ -229,7 +243,7 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// 2-byte character string.
-  Localized(u16, Vec< u16>) = 0b010010_00,
+  Localized(u16, Vec<u16>) = 0b010010_00,
 
   /// ### 8-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
@@ -284,7 +298,7 @@ pub enum Item {
   /// ### 4-BYTE FLOATING POINT NUMBER
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o40**
+  /// - **Format Code 0o44**
   /// 
   /// -------------------------------------------------------------------------
   /// 
@@ -602,7 +616,11 @@ impl TryFrom<Vec<u8>> for Item {
   type Error = Error;
 
   /// ## BINARY DATA -> ITEM
-  fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+  fn try_from(text: Vec<u8>) -> Result<Self, Self::Error> {
+    /// ## INTERNAL CONVERSION FUNCTION
+    /// 
+    /// Converts data from an iterator into an item without final checks and
+    /// using recursion in the case of List items.
     fn convert(data: &mut std::slice::Iter<u8>) -> Option<Item> {
       let byte = *data.next()?;
       let item = byte & 0b111111_00;
@@ -616,9 +634,10 @@ impl TryFrom<Vec<u8>> for Item {
         u32::from_be_bytes(bytes)
       };
       match item {
-        // List, this will involve recursion
+        // List
         0b000000_00 => {
           let mut vec: Vec<Item> = vec![];
+          // Perform Recursion
           for _ in 0..length {vec.push(convert(data)?);}
           Some(Item::List(vec))
         },
@@ -641,14 +660,18 @@ impl TryFrom<Vec<u8>> for Item {
           Some(Item::Ascii(vec))
         },
         // JIS-8 (TODO)
-        0b010001_00 => None,
+        0b010001_00 => {
+          let mut vec: Vec<u8> = vec![];
+          for _ in 0..length {vec.push(*data.next()?);}
+          Some(Item::Jis8(ISO_2022_JP.decode(&vec, encoding::types::DecoderTrap::Strict).ok()?))
+        },
         // Localized String (TODO)
         0b010010_00 => None,
         // 8-Byte Signed Integer
         0b011000_00 => {
           if length % 8 != 0 {return None}
           let mut vec: Vec<i64> = vec![];
-          for _ in 0..length {
+          for _ in 0..length/8 {
             let mut bytes = [0u8;8];
             for i in 0..8 {bytes[i] = *data.next()?}
             vec.push(i64::from_be_bytes(bytes));
@@ -665,7 +688,7 @@ impl TryFrom<Vec<u8>> for Item {
         0b011010_00 => {
           if length % 2 != 0 {return None}
           let mut vec: Vec<i16> = vec![];
-          for _ in 0..length {
+          for _ in 0..length/2 {
             let mut bytes = [0u8;2];
             for i in 0..2 {bytes[i] = *data.next()?}
             vec.push(i16::from_be_bytes(bytes));
@@ -676,7 +699,7 @@ impl TryFrom<Vec<u8>> for Item {
         0b011100_00 => {
           if length % 4 != 0 {return None}
           let mut vec: Vec<i32> = vec![];
-          for _ in 0..length {
+          for _ in 0..length/4 {
             let mut bytes = [0u8;4];
             for i in 0..4 {bytes[i] = *data.next()?}
             vec.push(i32::from_be_bytes(bytes));
@@ -687,7 +710,7 @@ impl TryFrom<Vec<u8>> for Item {
         0b100000_00 => {
           if length % 8 != 0 {return None}
           let mut vec: Vec<f64> = vec![];
-          for _ in 0..length {
+          for _ in 0..length/8 {
             let mut bytes = [0u8;8];
             for i in 0..8 {bytes[i] = *data.next()?}
             vec.push(f64::from_be_bytes(bytes));
@@ -698,7 +721,7 @@ impl TryFrom<Vec<u8>> for Item {
         0b100100_00 => {
           if length % 4 != 0 {return None}
           let mut vec: Vec<f32> = vec![];
-          for _ in 0..length {
+          for _ in 0..length/4 {
             let mut bytes = [0u8;4];
             for i in 0..4 {bytes[i] = *data.next()?}
             vec.push(f32::from_be_bytes(bytes));
@@ -709,7 +732,7 @@ impl TryFrom<Vec<u8>> for Item {
         0b101000_00 => {
           if length % 8 != 0 {return None}
           let mut vec: Vec<u64> = vec![];
-          for _ in 0..length {
+          for _ in 0..length/8 {
             let mut bytes = [0u8;8];
             for i in 0..8 {bytes[i] = *data.next()?}
             vec.push(u64::from_be_bytes(bytes));
@@ -724,20 +747,20 @@ impl TryFrom<Vec<u8>> for Item {
         },
         // 2-Byte Unsigned Integer
         0b101010_00 => {
-          if length % 8 != 0 {return None}
-          let mut vec: Vec<u64> = vec![];
-          for _ in 0..length {
-            let mut bytes = [0u8;8];
-            for i in 0..8 {bytes[i] = *data.next()?}
-            vec.push(u64::from_be_bytes(bytes));
+          if length % 2 != 0 {return None}
+          let mut vec: Vec<u16> = vec![];
+          for _ in 0..length/2 {
+            let mut bytes = [0u8;2];
+            for i in 0..2 {bytes[i] = *data.next()?}
+            vec.push(u16::from_be_bytes(bytes));
           }
-          Some(Item::Unsigned8(vec))
+          Some(Item::Unsigned2(vec))
         },
         // 4-Byte Unsigned Integer
         0b101100_00 => {
-          if length % 8 != 0 {return None}
+          if length % 4 != 0 {return None}
           let mut vec: Vec<u32> = vec![];
-          for _ in 0..length {
+          for _ in 0..length/4 {
             let mut bytes = [0u8;4];
             for i in 0..4 {bytes[i] = *data.next()?}
             vec.push(u32::from_be_bytes(bytes));
@@ -748,15 +771,15 @@ impl TryFrom<Vec<u8>> for Item {
         _ => None
       }
     }
-
-    if data.is_empty() {return Err(Error::EmptyText)};
-    let mut iterator: std::slice::Iter<u8> = data.iter();
-    let result: Option<Item> = convert(&mut iterator);
-    if iterator.next().is_some() {return Err(Error::InvalidText)}
-    match result {
-      Some(item) => Ok(item),
-      None => Err(Error::InvalidText),
-    }
+    // Empty items are their own category of error which may be acceptable elsewhere.
+    if text.is_empty() {return Err(Error::EmptyText)};
+    // Convert data into an item.
+    let mut data: std::slice::Iter<u8> = text.iter();
+    let result = convert(&mut data).ok_or(Error::InvalidText)?;
+    // Check that all text has been handled.
+    if data.next().is_some() {return Err(Error::InvalidText)}
+    // Finish.
+    Ok(result)
   }
 }
 
@@ -1426,7 +1449,7 @@ pub mod items {
     Binary    (Vec<u8  >),
     Boolean   (Vec<bool>),
     Ascii     (Vec<Char>),
-    Jis8      (Vec<u8  >),
+    Jis8      (String),
     Signed1   (Vec<i8  >),
     Signed2   (Vec<i16 >),
     Signed4   (Vec<i32 >),

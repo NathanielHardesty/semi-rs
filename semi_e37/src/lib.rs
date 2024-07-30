@@ -1677,7 +1677,6 @@ impl HsmsClient {
           }.into()).is_err() {break}
         },
       }
-      
     }
     // TO: NOT CONNECTED
     self.disconnect();
@@ -1801,12 +1800,12 @@ impl HsmsClient {
     self: &Arc<Self>,
     id: HsmsMessageID,
     message: semi_e5::Message,
-  ) -> JoinHandle<Result<Option<HsmsMessage>, ConnectionStateTransition>> {
+  ) -> JoinHandle<Result<Option<semi_e5::Message>, ConnectionStateTransition>> {
     println!("HsmsClient::data");
     let clone: Arc<HsmsClient> = self.clone();
     let reply_expected = message.function % 2 == 1 && message.w;
     thread::spawn(move || {
-      'lock: {
+      'disconnect: {
         match clone.selection_state.read().unwrap().deref() {
           // IS: SELECTED
           SelectionState::Selected(_session_id) => {
@@ -1820,13 +1819,18 @@ impl HsmsClient {
               clone.parameter_settings.t3,
             )?{
               // RX: Valid
-              Some(rx_message) => return Ok(Some(rx_message)),
+              Some(rx_message) => {
+                match rx_message.contents {
+                  HsmsMessageContents::DataMessage(data_message) => return Ok(Some(data_message)),
+                  _ => return Err(ConnectionStateTransition::None),
+                }
+              },
               // RX: Invalid
               None => {
                 // Reply Expected
                 if reply_expected {
                   // TO: NOT CONNECTED
-                  break 'lock;
+                  break 'disconnect;
                 }
                 // Reply Not Expected
                 else {
