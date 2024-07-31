@@ -33,7 +33,7 @@ fn test_equipment() {
             Ok(s1f3) => {
               let mut vec = vec![];
               for _status_variable in s1f3.0.0 {
-                vec.push(StatusVariableValue::List(vec![Item::Unsigned4(vec![10])]));
+                vec.push(StatusVariableValue::List(vec![Item::u4(10)]));
               }
               rx_client.data(
                 id,
@@ -62,7 +62,7 @@ fn test_equipment() {
               stream: 1,
               function: 14,
               text: Some(Item::List(vec![
-                Item::Binary(vec![0]),
+                Item::Bin(vec![0]),
                 Item::List(vec![
                   Item::Ascii(vec![CapitalT, SmallE, SmallS, SmallT]),
                   Item::Ascii(vec![Digit0, Digit1, Digit0]),
@@ -78,7 +78,7 @@ fn test_equipment() {
               w: false,
               stream: 1,
               function: 18,
-              text: Some(Item::Binary(vec![0])),
+              text: Some(Item::Bin(vec![0])),
             }
           ).join().unwrap().unwrap();
         },

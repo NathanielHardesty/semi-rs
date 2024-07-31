@@ -159,6 +159,27 @@ pub enum Error {
   WrongFormat,
 }
 
+/// ## ITEM FORMAT
+/// **Based on SEMI E5§9.2.2**
+pub mod format {
+  pub const LIST  : u8 = 0b000000_00;
+  pub const BIN   : u8 = 0b001000_00;
+  pub const BOOL  : u8 = 0b001001_00;
+  pub const ASCII : u8 = 0b010000_00;
+  pub const JIS8  : u8 = 0b010001_00;
+  pub const LOCAL : u8 = 0b010010_00;
+  pub const I8    : u8 = 0b011000_00;
+  pub const I1    : u8 = 0b011001_00;
+  pub const I2    : u8 = 0b011010_00;
+  pub const I4    : u8 = 0b011100_00;
+  pub const F8    : u8 = 0b100000_00;
+  pub const F4    : u8 = 0b100100_00;
+  pub const U8    : u8 = 0b101000_00;
+  pub const U1    : u8 = 0b101001_00;
+  pub const U2    : u8 = 0b101010_00;
+  pub const U4    : u8 = 0b101100_00;
+}
+
 /// ## GENERIC ITEM
 /// **Based on SEMI E5§9**
 /// 
@@ -191,29 +212,7 @@ pub enum Item {
   /// than the number of bytes.
   /// 
   /// [List]: self
-  List(Vec<Item>) = 0b000000_00,
-
-  /// ### BINARY
-  /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o10**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// Single-byte quanitity where the value can be anything and does not
-  /// otherwise have a strictly defined meaning.
-  Binary(Vec<u8>) = 0b001000_00,
-
-  /// ### BOOLEAN
-  /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o11**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// Single-byte quantity where a value of 0 is equivalent to 'false' and any
-  /// non-zero value is equivalent to 'true'.
-  Boolean(Vec<bool>) = 0b001001_00,
+  List(Vec<Item>) = format::LIST,
 
   /// ### ASCII
   /// **Based on SEMI E5§9.2.2**
@@ -223,7 +222,7 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// ASCII character string.
-  Ascii(Vec<Char>) = 0b010000_00,
+  Ascii(Vec<Char>) = format::ASCII,
 
   /// ### JIS-8
   /// **Based on SEMI E5§9.2.2**
@@ -233,7 +232,7 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// JIS-8 character string.
-  Jis8(String) = 0b010001_00,
+  Jis8(String) = format::JIS8,
 
   /// ### LOCALIZED STRING
   /// **Based on SEMI E5§9.2.2**
@@ -245,17 +244,29 @@ pub enum Item {
   /// Note: Used only by item 'TEXT' in S10F1, S10F3, S10F5, and S10F9
   /// 
   /// 2-byte character string.
-  Localized(u16, Vec<u8>) = 0b010010_00,
+  Local(u16, Vec<u8>) = format::LOCAL,
 
-  /// ### 8-BYTE SIGNED INTEGER
+  /// ### BINARY
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o30**
+  /// - **Format Code 0o10**
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// 8-byte two's compliment integer.
-  Signed8(Vec<i64>) = 0b011000_00,
+  /// Single-byte quanitity where the value can be anything and does not
+  /// otherwise have a strictly defined meaning.
+  Bin(Vec<u8>) = format::BIN,
+
+  /// ### BOOLEAN
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o11**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// Single-byte quantity where a value of 0 is equivalent to 'false' and any
+  /// non-zero value is equivalent to 'true'.
+  Bool(Vec<bool>) = format::BOOL,
 
   /// ### 1-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
@@ -265,7 +276,7 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// 1-byte two's compliment integer.
-  Signed1(Vec<i8>) = 0b011001_00,
+  I1(Vec<i8>) = format::I1,
 
   /// ### 2-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
@@ -275,7 +286,7 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// 2-byte two's compliment integer.
-  Signed2(Vec<i16>) = 0b011010_00,
+  I2(Vec<i16>) = format::I2,
 
   /// ### 4-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
@@ -285,37 +296,17 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// 4-byte two's compliment integer.
-  Signed4(Vec<i32>) = 0b011100_00,
+  I4(Vec<i32>) = format::I4,
 
-  /// ### 8-BYTE FLOATING POINT NUMBER
+  /// ### 8-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o40**
+  /// - **Format Code 0o30**
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// 8-byte IEEE-754 floating point number.
-  Float8(Vec<f64>) = 0b100000_00,
-
-  /// ### 4-BYTE FLOATING POINT NUMBER
-  /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o44**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// 4-byte IEEE-754 floating point number.
-  Float4(Vec<f32>) = 0b100100_00,
-
-  /// ### 8-BYTE UNSIGNED INTEGER
-  /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o50**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// 8-byte integer.
-  Unsigned8(Vec<u64>) = 0b101000_00,
+  /// 8-byte two's compliment integer.
+  I8(Vec<i64>) = format::I8,
 
   /// ### 1-BYTE UNSIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
@@ -325,7 +316,7 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// 1-byte integer.
-  Unsigned1(Vec<u8>) = 0b101001_00,
+  U1(Vec<u8>) = format::U1,
 
   /// ### 2-BYTE UNSIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
@@ -335,7 +326,7 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// 2-byte integer.
-  Unsigned2(Vec<u16>) = 0b101010_00,
+  U2(Vec<u16>) = format::U2,
 
   /// ### 4-BYTE UNSIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
@@ -345,24 +336,69 @@ pub enum Item {
   /// -------------------------------------------------------------------------
   /// 
   /// 4-byte integer.
-  Unsigned4(Vec<u32>) = 0b101100_00,
+  U4(Vec<u32>) = format::U4,
+
+  /// ### 8-BYTE UNSIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o50**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 8-byte integer.
+  U8(Vec<u64>) = format::U8,
+
+  /// ### 4-BYTE FLOATING POINT NUMBER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o44**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 4-byte IEEE-754 floating point number.
+  F4(Vec<f32>) = format::F4,
+
+  /// ### 8-BYTE FLOATING POINT NUMBER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o40**
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// 8-byte IEEE-754 floating point number.
+  F8(Vec<f64>) = format::F8,
+}
+impl Item {
+  pub fn bin  (value: u8  ) -> Self {Self::Bin  (vec![value])}
+  pub fn bool (value: bool) -> Self {Self::Bool (vec![value])}
+  pub fn i1   (value: i8  ) -> Self {Self::I1   (vec![value])}
+  pub fn i2   (value: i16 ) -> Self {Self::I2   (vec![value])}
+  pub fn i4   (value: i32 ) -> Self {Self::I4   (vec![value])}
+  pub fn i8   (value: i64 ) -> Self {Self::I8   (vec![value])}
+  pub fn u1   (value: u8  ) -> Self {Self::U1   (vec![value])}
+  pub fn u2   (value: u16 ) -> Self {Self::U2   (vec![value])}
+  pub fn u4   (value: u32 ) -> Self {Self::U4   (vec![value])}
+  pub fn u8   (value: u64 ) -> Self {Self::U8   (vec![value])}
+  pub fn f4   (value: f32 ) -> Self {Self::F4   (vec![value])}
+  pub fn f8   (value: f64 ) -> Self {Self::F8   (vec![value])}
 }
 impl From<Item> for Vec<u8> {
   /// ## ITEM -> BINARY DATA
   fn from(item: Item) -> Self {
     let mut vec = vec![];
     match item {
+      // List
       Item::List(item_vec) => {
         //Length
         let len = item_vec.len();
         if len < 256 {
-          vec.push(0b000000_01);
+          vec.push(format::LIST | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b000000_10);
+          vec.push(format::LIST | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b000000_11);
+          vec.push(format::LIST | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Items
@@ -370,53 +406,18 @@ impl From<Item> for Vec<u8> {
           vec.append(&mut item.into());
         }
       },
-      Item::Binary(bin_vec) => {
-        //Length
-        let len = bin_vec.len();
-        if len < 256 {
-          vec.push(0b001000_01);
-          vec.push(len as u8);
-        } else if len < 65536 {
-          vec.push(0b001000_10);
-          vec.extend_from_slice(&(len as u16).to_be_bytes());
-        } else {
-          vec.push(0b001000_11);
-          vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
-        };
-        //Vector
-        for bin in bin_vec {
-          vec.push(bin);
-        }
-      },
-      Item::Boolean(bool_vec) => {
-        //Length
-        let len = bool_vec.len();
-        if len < 256 {
-          vec.push(0b001001_01);
-          vec.push(len as u8);
-        } else if len < 65536 {
-          vec.push(0b001001_10);
-          vec.extend_from_slice(&(len as u16).to_be_bytes());
-        } else {
-          vec.push(0b001001_11);
-          vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
-        };
-        //Vector
-        for bool in bool_vec {
-          vec.push(bool as u8);
-        }
-      },
+      // ASCII
       Item::Ascii(ascii_vec) => {
         //Length
         let len = ascii_vec.len();
         if len < 256 {
-          vec.push(0b010000_01);
+          vec.push(format::ASCII | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b010000_10);
+          vec.push(format::ASCII | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b010000_11);
+          vec.push(format::ASCII | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
@@ -424,57 +425,80 @@ impl From<Item> for Vec<u8> {
           vec.push(ascii as u8);
         }
       },
+      // JIS-8
       Item::Jis8(jis8_string) => {
         // Encode
         let encoded = ISO_2022_JP.encode(&jis8_string, encoding::EncoderTrap::Ignore).unwrap();
         // Item Code + Length
         let len = encoded.len();
         if len < 256 {
-          vec.push(0b010001_01);
+          vec.push(format::JIS8 | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b010001_10);
+          vec.push(format::JIS8 | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b010001_11);
+          vec.push(format::JIS8 | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         // Vector
         vec.extend_from_slice(&encoded);
       },
-      Item::Localized(_widechar_format, _widechar_vec) => {
+      // Localized String (TODO)
+      Item::Local(_widechar_format, _widechar_vec) => {
         // 010010_00
         todo!()
       },
-      Item::Signed8(i8_vec) => {
+      // Binary
+      Item::Bin(bin_vec) => {
         //Length
-        let len = i8_vec.len() * 8;
+        let len = bin_vec.len();
         if len < 256 {
-          vec.push(0b011000_01);
+          vec.push(format::BIN | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b011000_10);
+          vec.push(format::BIN | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b011000_11);
+          vec.push(format::BIN | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
-        for i8 in i8_vec {
-          vec.extend_from_slice(&i8.to_be_bytes());
+        for bin in bin_vec {
+          vec.push(bin);
         }
       },
-      Item::Signed1(i1_vec) => {
+      // Boolean
+      Item::Bool(bool_vec) => {
+        //Length
+        let len = bool_vec.len();
+        if len < 256 {
+          vec.push(format::BOOL | 1);
+          vec.push(len as u8);
+        } else if len < 65536 {
+          vec.push(format::BOOL | 2);
+          vec.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+          vec.push(format::BOOL | 3);
+          vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
+        };
+        //Vector
+        for bool in bool_vec {
+          vec.push(bool as u8);
+        }
+      },
+      // 1-Byte Signed Integer
+      Item::I1(i1_vec) => {
         //Length
         let len = i1_vec.len();
         if len < 256 {
-          vec.push(0b011001_01);
+          vec.push(format::I1 | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b011001_10);
+          vec.push(format::I1 | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b011001_11);
+          vec.push(format::I1 | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
@@ -482,17 +506,18 @@ impl From<Item> for Vec<u8> {
           vec.extend_from_slice(&i1.to_be_bytes());
         }
       },
-      Item::Signed2(i2_vec) => {
+      // 2-Byte Signed Integer
+      Item::I2(i2_vec) => {
         //Length
         let len = i2_vec.len() * 2;
         if len < 256 {
-          vec.push(0b011010_01);
+          vec.push(format::I2 | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b011010_10);
+          vec.push(format::I2 | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b011010_11);
+          vec.push(format::I2 | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
@@ -500,17 +525,18 @@ impl From<Item> for Vec<u8> {
           vec.extend_from_slice(&i2.to_be_bytes());
         }
       },
-      Item::Signed4(i4_vec) => {
+      // 4-Byte Signed Integer
+      Item::I4(i4_vec) => {
         //Length
         let len = i4_vec.len() * 4;
         if len < 256 {
-          vec.push(0b011100_01);
+          vec.push(format::I4 | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b011100_10);
+          vec.push(format::I4 | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b011100_11);
+          vec.push(format::I4 | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
@@ -518,71 +544,37 @@ impl From<Item> for Vec<u8> {
           vec.extend_from_slice(&i4.to_be_bytes());
         }
       },
-      Item::Float8(f8_vec) => {
+      // 8-Byte Signed Integer
+      Item::I8(i8_vec) => {
         //Length
-        let len = f8_vec.len() * 8;
+        let len = i8_vec.len() * 8;
         if len < 256 {
-          vec.push(0b100000_01);
+          vec.push(format::I8 | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b100000_10);
+          vec.push(format::I8 | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b100000_11);
+          vec.push(format::I8 | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
-        for f8 in f8_vec {
-          vec.extend_from_slice(&f8.to_be_bytes());
+        for i8 in i8_vec {
+          vec.extend_from_slice(&i8.to_be_bytes());
         }
       },
-      Item::Float4(f4_vec) => {
-        //Length
-        let len = f4_vec.len() * 4;
-        if len < 256 {
-          vec.push(0b100100_01);
-          vec.push(len as u8);
-        } else if len < 65536 {
-          vec.push(0b100100_10);
-          vec.extend_from_slice(&(len as u16).to_be_bytes());
-        } else {
-          vec.push(0b100100_11);
-          vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
-        };
-        //Vector
-        for f4 in f4_vec {
-          vec.extend_from_slice(&f4.to_be_bytes());
-        }
-      },
-      Item::Unsigned8(u8_vec) => {
-        //Length
-        let len = u8_vec.len() * 8;
-        if len < 256 {
-          vec.push(0b101000_01);
-          vec.push(len as u8);
-        } else if len < 65536 {
-          vec.push(0b101000_10);
-          vec.extend_from_slice(&(len as u16).to_be_bytes());
-        } else {
-          vec.push(0b101000_11);
-          vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
-        };
-        //Vector
-        for u8 in u8_vec {
-          vec.extend_from_slice(&u8.to_be_bytes());
-        }
-      },
-      Item::Unsigned1(u1_vec) => {
+      // 1-Byte Unsigned Integer
+      Item::U1(u1_vec) => {
         //Length
         let len = u1_vec.len();
         if len < 256 {
-          vec.push(0b101001_01);
+          vec.push(format::U1 | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b101001_10);
+          vec.push(format::U1 | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b101001_11);
+          vec.push(format::U1 | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
@@ -590,17 +582,18 @@ impl From<Item> for Vec<u8> {
           vec.push(u1);
         }
       },
-      Item::Unsigned2(u2_vec) => {
+      // 2-Byte Unsigned Integer
+      Item::U2(u2_vec) => {
         //Length
         let len = u2_vec.len() * 2;
         if len < 256 {
-          vec.push(0b101010_01);
+          vec.push(format::U2 | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b101010_10);
+          vec.push(format::U2 | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b101010_11);
+          vec.push(format::U2 | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
@@ -608,22 +601,80 @@ impl From<Item> for Vec<u8> {
           vec.extend_from_slice(&u2.to_be_bytes());
         }
       },
-      Item::Unsigned4(u4_vec) => {
+      // 4-Byte Unsigned Integer
+      Item::U4(u4_vec) => {
         //Length
         let len = u4_vec.len() * 4;
         if len < 256 {
-          vec.push(0b101100_01);
+          vec.push(format::U4 | 1);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b101100_10);
+          vec.push(format::U4 | 2);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b101100_11);
+          vec.push(format::U4 | 3);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
         for u4 in u4_vec {
           vec.extend_from_slice(&u4.to_be_bytes());
+        }
+      },
+      // 8-Byte Unsigned Integer
+      Item::U8(u8_vec) => {
+        //Length
+        let len = u8_vec.len() * 8;
+        if len < 256 {
+          vec.push(format::U8 | 1);
+          vec.push(len as u8);
+        } else if len < 65536 {
+          vec.push(format::U8 | 2);
+          vec.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+          vec.push(format::U8 | 3);
+          vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
+        };
+        //Vector
+        for u8 in u8_vec {
+          vec.extend_from_slice(&u8.to_be_bytes());
+        }
+      },
+      // 4-Byte Floating Point Number
+      Item::F4(f4_vec) => {
+        //Length
+        let len = f4_vec.len() * 4;
+        if len < 256 {
+          vec.push(format::F4 | 1);
+          vec.push(len as u8);
+        } else if len < 65536 {
+          vec.push(format::F4 | 2);
+          vec.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+          vec.push(format::F4 | 3);
+          vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
+        };
+        //Vector
+        for f4 in f4_vec {
+          vec.extend_from_slice(&f4.to_be_bytes());
+        }
+      },
+      // 8-Byte Floating Point Number
+      Item::F8(f8_vec) => {
+        //Length
+        let len = f8_vec.len() * 8;
+        if len < 256 {
+          vec.push(format::F8 | 1);
+          vec.push(len as u8);
+        } else if len < 65536 {
+          vec.push(format::F8 | 2);
+          vec.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+          vec.push(format::F8 | 3);
+          vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
+        };
+        //Vector
+        for f8 in f8_vec {
+          vec.extend_from_slice(&f8.to_be_bytes());
         }
       },
     }
@@ -640,9 +691,9 @@ impl TryFrom<Vec<u8>> for Item {
     /// Converts data from an iterator into an item without final checks and
     /// using recursion in the case of List items.
     fn convert(data: &mut std::slice::Iter<u8>) -> Option<Item> {
-      let byte = *data.next()?;
-      let item = byte & 0b111111_00;
-      let length_length = byte & 0b000000_11;
+      let format_byte = *data.next()?;
+      let item = format_byte & 0b111111_00;
+      let length_length = format_byte & 0b000000_11;
       if length_length == 0 {return None}
       let length: u32 = {
         let mut bytes = [0u8;4];
@@ -653,137 +704,137 @@ impl TryFrom<Vec<u8>> for Item {
       };
       match item {
         // List
-        0b000000_00 => {
+        format::LIST => {
           let mut vec: Vec<Item> = vec![];
           // Perform Recursion
           for _ in 0..length {vec.push(convert(data)?);}
           Some(Item::List(vec))
         },
-        // Binary
-        0b001000_00 => {
-          let mut vec: Vec<u8> = vec![];
-          for _ in 0..length {vec.push(*data.next()?);}
-          Some(Item::Binary(vec))
-        },
-        // Boolean
-        0b001001_00 => {
-          let mut vec: Vec<bool> = vec![];
-          for _ in 0..length {vec.push(*data.next()? > 0);}
-          Some(Item::Boolean(vec))
-        },
         // ASCII
-        0b010000_00 => {
+        format::ASCII => {
           let mut vec: Vec<Char> = vec![];
           for _ in 0..length {vec.push(Char::from_u8(*data.next()?)?);}
           Some(Item::Ascii(vec))
         },
-        // JIS-8 (TODO)
-        0b010001_00 => {
+        // JIS-8
+        format::JIS8 => {
           let mut vec: Vec<u8> = vec![];
           for _ in 0..length {vec.push(*data.next()?);}
           Some(Item::Jis8(ISO_2022_JP.decode(&vec, encoding::types::DecoderTrap::Strict).ok()?))
         },
         // Localized String (TODO)
-        0b010010_00 => None,
-        // 8-Byte Signed Integer
-        0b011000_00 => {
-          if length % 8 != 0 {return None}
-          let mut vec: Vec<i64> = vec![];
-          for _ in 0..length/8 {
-            let mut bytes = [0u8;8];
-            for i in 0..8 {bytes[i] = *data.next()?}
-            vec.push(i64::from_be_bytes(bytes));
-          }
-          Some(Item::Signed8(vec))
+        format::LOCAL => None,
+        // Binary
+        format::BIN => {
+          let mut vec: Vec<u8> = vec![];
+          for _ in 0..length {vec.push(*data.next()?);}
+          Some(Item::Bin(vec))
+        },
+        // Boolean
+        format::BOOL => {
+          let mut vec: Vec<bool> = vec![];
+          for _ in 0..length {vec.push(*data.next()? > 0);}
+          Some(Item::Bool(vec))
         },
         // 1-Byte Signed Integer
-        0b011001_00 => {
+        format::I1 => {
           let mut vec: Vec<i8> = vec![];
           for _ in 0..length {vec.push(*data.next()? as i8);}
-          Some(Item::Signed1(vec))
+          Some(Item::I1(vec))
         },
         // 2-Byte Signed Integer
-        0b011010_00 => {
+        format::I2 => {
           if length % 2 != 0 {return None}
           let mut vec: Vec<i16> = vec![];
           for _ in 0..length/2 {
             let mut bytes = [0u8;2];
-            for i in 0..2 {bytes[i] = *data.next()?}
+            for byte in &mut bytes {*byte = *data.next()?}
             vec.push(i16::from_be_bytes(bytes));
           }
-          Some(Item::Signed2(vec))
+          Some(Item::I2(vec))
         },
         // 4-Byte Signed Integer
-        0b011100_00 => {
+        format::I4 => {
           if length % 4 != 0 {return None}
           let mut vec: Vec<i32> = vec![];
           for _ in 0..length/4 {
             let mut bytes = [0u8;4];
-            for i in 0..4 {bytes[i] = *data.next()?}
+            for byte in &mut bytes {*byte = *data.next()?}
             vec.push(i32::from_be_bytes(bytes));
           }
-          Some(Item::Signed4(vec))
+          Some(Item::I4(vec))
         },
-        // 8-Byte Floating Point Number
-        0b100000_00 => {
+        // 8-Byte Signed Integer
+        format::I8 => {
           if length % 8 != 0 {return None}
-          let mut vec: Vec<f64> = vec![];
+          let mut vec: Vec<i64> = vec![];
           for _ in 0..length/8 {
             let mut bytes = [0u8;8];
-            for i in 0..8 {bytes[i] = *data.next()?}
-            vec.push(f64::from_be_bytes(bytes));
+            for byte in &mut bytes {*byte = *data.next()?}
+            vec.push(i64::from_be_bytes(bytes));
           }
-          Some(Item::Float8(vec))
-        },
-        // 4-Byte Floating Point Number
-        0b100100_00 => {
-          if length % 4 != 0 {return None}
-          let mut vec: Vec<f32> = vec![];
-          for _ in 0..length/4 {
-            let mut bytes = [0u8;4];
-            for i in 0..4 {bytes[i] = *data.next()?}
-            vec.push(f32::from_be_bytes(bytes));
-          }
-          Some(Item::Float4(vec))
-        },
-        // 8-Byte Unsigned Integer
-        0b101000_00 => {
-          if length % 8 != 0 {return None}
-          let mut vec: Vec<u64> = vec![];
-          for _ in 0..length/8 {
-            let mut bytes = [0u8;8];
-            for i in 0..8 {bytes[i] = *data.next()?}
-            vec.push(u64::from_be_bytes(bytes));
-          }
-          Some(Item::Unsigned8(vec))
+          Some(Item::I8(vec))
         },
         // 1-Byte Unsigned Integer
-        0b101001_00 => {
+        format::U1 => {
           let mut vec: Vec<u8> = vec![];
           for _ in 0..length {vec.push(*data.next()?);}
-          Some(Item::Unsigned1(vec))
+          Some(Item::U1(vec))
         },
         // 2-Byte Unsigned Integer
-        0b101010_00 => {
+        format::U2 => {
           if length % 2 != 0 {return None}
           let mut vec: Vec<u16> = vec![];
           for _ in 0..length/2 {
             let mut bytes = [0u8;2];
-            for i in 0..2 {bytes[i] = *data.next()?}
+            for byte in &mut bytes {*byte = *data.next()?}
             vec.push(u16::from_be_bytes(bytes));
           }
-          Some(Item::Unsigned2(vec))
+          Some(Item::U2(vec))
         },
         // 4-Byte Unsigned Integer
-        0b101100_00 => {
+        format::U4 => {
           if length % 4 != 0 {return None}
           let mut vec: Vec<u32> = vec![];
           for _ in 0..length/4 {
             let mut bytes = [0u8;4];
-            for i in 0..4 {bytes[i] = *data.next()?}
+            for byte in &mut bytes {*byte = *data.next()?}
             vec.push(u32::from_be_bytes(bytes));
           }
-          Some(Item::Unsigned4(vec))
+          Some(Item::U4(vec))
+        },
+        // 8-Byte Unsigned Integer
+        format::U8 => {
+          if length % 8 != 0 {return None}
+          let mut vec: Vec<u64> = vec![];
+          for _ in 0..length/8 {
+            let mut bytes = [0u8;8];
+            for byte in &mut bytes {*byte = *data.next()?}
+            vec.push(u64::from_be_bytes(bytes));
+          }
+          Some(Item::U8(vec))
+        },
+        // 4-Byte Floating Point Number
+        format::F4 => {
+          if length % 4 != 0 {return None}
+          let mut vec: Vec<f32> = vec![];
+          for _ in 0..length/4 {
+            let mut bytes = [0u8;4];
+            for byte in &mut bytes {*byte = *data.next()?}
+            vec.push(f32::from_be_bytes(bytes));
+          }
+          Some(Item::F4(vec))
+        },
+        // 8-Byte Floating Point Number
+        format::F8 => {
+          if length % 8 != 0 {return None}
+          let mut vec: Vec<f64> = vec![];
+          for _ in 0..length/8 {
+            let mut bytes = [0u8;8];
+            for byte in &mut bytes {*byte = *data.next()?}
+            vec.push(f64::from_be_bytes(bytes));
+          }
+          Some(Item::F8(vec))
         },
         // Unrecognized
         _ => None
@@ -1212,7 +1263,7 @@ pub mod items {
   /// - [S2F25], [S2F26]
   #[derive(Clone, Debug)]
   pub struct AnyBinaryString(Vec<u8>);
-  singleformat_vec!{AnyBinaryString, Binary, 0.., u8}
+  singleformat_vec!{AnyBinaryString, Bin, 0.., u8}
 
   /// ## ALCD
   /// 
@@ -1244,7 +1295,7 @@ pub mod items {
   /// - [S5F1], [S5F6], [S5F8]
   #[derive(Clone, Copy, Debug)]
   pub struct AlarmCode(pub u8);
-  singleformat!{AlarmCode, Binary}
+  singleformat!{AlarmCode, Bin}
 
   /// ## MDLN
   /// 
@@ -1297,7 +1348,7 @@ pub mod items {
     Accepted = 0,
     Denied   = 1,
   }
-  singleformat_enum!{CommAck, Binary}
+  singleformat_enum!{CommAck, Bin}
 
   /// ## ERRCODE
   /// 
@@ -1416,7 +1467,7 @@ pub mod items {
   pub enum OffLineAcknowledge {
     Acknowledge = 0,
   }
-  singleformat_enum!{OffLineAcknowledge, Binary}
+  singleformat_enum!{OffLineAcknowledge, Bin}
 
   /// ## ONLACK
   /// 
@@ -1436,7 +1487,7 @@ pub mod items {
     NotAllowed    = 1,
     AlreadyOnLine = 2,
   }
-  singleformat_enum!{OnLineAcknowledge, Binary}
+  singleformat_enum!{OnLineAcknowledge, Bin}
 
   /// ## SFCD
   /// 
@@ -1448,7 +1499,7 @@ pub mod items {
   /// 
   /// - [S1F5], [S1F7]
   pub struct StatusFormCode(pub u8);
-  singleformat!{StatusFormCode, Binary}
+  singleformat!{StatusFormCode, Bin}
 
   /// ## SV
   /// 
@@ -1463,30 +1514,30 @@ pub mod items {
   /// 
   /// [S1F4]: crate::messages::s1::SelectedEquipmentStatusData
   pub enum StatusVariableValue {
-    List      (Vec<Item>),
-    Binary    (Vec<u8  >),
-    Boolean   (Vec<bool>),
-    Ascii     (Vec<Char>),
-    Jis8      (String),
-    Signed1   (Vec<i8  >),
-    Signed2   (Vec<i16 >),
-    Signed4   (Vec<i32 >),
-    Signed8   (Vec<i64 >),
-    Unsigned1 (Vec<u8  >),
-    Unsigned2 (Vec<u16 >),
-    Unsigned4 (Vec<u32 >),
-    Unsigned8 (Vec<u64 >),
-    Float4    (Vec<f32 >),
-    Float8    (Vec<f64 >),
+    List  (Vec<Item>),
+    Bin   (Vec<u8  >),
+    Bool  (Vec<bool>),
+    Ascii (Vec<Char>),
+    Jis8  (String),
+    I1    (Vec<i8  >),
+    I2    (Vec<i16 >),
+    I4    (Vec<i32 >),
+    I8    (Vec<i64 >),
+    U1    (Vec<u8  >),
+    U2    (Vec<u16 >),
+    U4    (Vec<u32 >),
+    U8    (Vec<u64 >),
+    F4    (Vec<f32 >),
+    F8    (Vec<f64 >),
   }
   multiformat_vec!{
     StatusVariableValue,
     List,
-    Binary, Boolean,
+    Bin, Bool,
     Ascii, Jis8,
-    Signed1, Signed2, Signed4, Signed8,
-    Unsigned1, Unsigned2, Unsigned4, Unsigned8,
-    Float4, Float8,
+    I1, I2, I4, I8,
+    U1, U2, U4, U8,
+    F4, F8,
   }
 
   /// ## SVID
@@ -1504,21 +1555,21 @@ pub mod items {
   /// [S1F11]: crate::messages::s1::StatusVariableNamelistRequest
   /// [S1F12]: crate::messages::s1::StatusVariableNamelistReply
   pub enum StatusVariableID {
-    Binary    (u8 ),
-    Signed1   (i8 ),
-    Signed2   (i16),
-    Signed4   (i32),
-    Signed8   (i64),
-    Unsigned1 (u8 ),
-    Unsigned2 (u16),
-    Unsigned4 (u32),
-    Unsigned8 (u64),
+    Bin (u8 ),
+    I1  (i8 ),
+    I2  (i16),
+    I4  (i32),
+    I8  (i64),
+    U1  (u8 ),
+    U2  (u16),
+    U4  (u32),
+    U8  (u64),
   }
   multiformat!{
     StatusVariableID,
-    Binary,
-    Signed1, Signed2, Signed4, Signed8,
-    Unsigned1, Unsigned2, Unsigned4, Unsigned8,
+    Bin,
+    I1, I2, I4, I8,
+    U1, U2, U4, U8,
   }
 
   /// ## SVNAME
@@ -1552,7 +1603,7 @@ pub mod items {
     TrackOn         = 3,
     StuckInReceiver = 4,
   }
-  singleformat_enum!{TransferStatusInputPort, Binary}
+  singleformat_enum!{TransferStatusInputPort, Bin}
 
   /// ## TSOP
   /// 
@@ -1572,7 +1623,7 @@ pub mod items {
     StuckInSender = 4,
     Completed     = 5,
   }
-  singleformat_enum!{TransferStatusOutputPort, Binary}
+  singleformat_enum!{TransferStatusOutputPort, Bin}
 
   /// ## UNITS
   /// 
