@@ -2,7 +2,7 @@
 #![feature(ascii_char_variants)]
 
 use std::{ascii::Char::*, sync::{mpsc::Receiver, Arc}, thread::{self, JoinHandle}, time::Duration};
-use semi_e5::{Message, Item};
+use semi_e5::{items::StatusVariableValue, messages::s1::SelectedEquipmentStatusData, Item, Message};
 use semi_e37::{ConnectionMode, ConnectionStateTransition, HsmsClient, HsmsMessageID, ParameterSettings};
 
 fn main() {
@@ -25,19 +25,23 @@ fn test_equipment() {
   let rx_message: Receiver<(HsmsMessageID, Message)> = client.connect("127.0.0.1:5000").unwrap();
   let rx_client: Arc<HsmsClient> = client.clone();
   let rx_thread: JoinHandle<()> = thread::spawn(move || {
-    for (id, data) in rx_message {
-      println!("EQUIPMENT DATA RX {:?}", data);
-      match (data.w, data.stream, data.function) {
+    for (id, message) in rx_message {
+      println!("EQUIPMENT DATA RX {:?}", message);
+      match (message.w, message.stream, message.function) {
         (true, 1, 3) => {
-          rx_client.data(
-            id,
-            Message {
-              stream: 1,
-              function: 4,
-              w: false,
-              text: Some(Item::List(vec![])),
-            }
-          ).join().unwrap().unwrap();
+          match semi_e5::messages::s1::SelectedEquipmentStatusRequest::try_from(message) {
+            Ok(s1f3) => {
+              let mut vec = vec![];
+              for _status_variable in s1f3.0.0 {
+                vec.push(StatusVariableValue::List(vec![Item::Unsigned4(vec![10])]));
+              }
+              rx_client.data(
+                id,
+                SelectedEquipmentStatusData(semi_e5::items::VecList(vec)).into()
+              ).join().unwrap().unwrap();
+            },
+            Err(_) => todo!(),
+          }
         },
         (true, 1, 11) => {
           rx_client.data(

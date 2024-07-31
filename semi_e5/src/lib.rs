@@ -17,7 +17,7 @@
 //! 
 //! ## TO BE DONE
 //! 
-//! - Implement JIS-8 and "Localized" strings
+//! - Implement "Localized" strings
 //! - Finish adding specific items
 //! - Finish adding messages to Stream 1
 //! - Add messages to Streams 2 through 21
@@ -242,8 +242,10 @@ pub enum Item {
   /// 
   /// -------------------------------------------------------------------------
   /// 
+  /// Note: Used only by item 'TEXT' in S10F1, S10F3, S10F5, and S10F9
+  /// 
   /// 2-byte character string.
-  Localized(u16, Vec<u16>) = 0b010010_00,
+  Localized(u16, Vec<u8>) = 0b010010_00,
 
   /// ### 8-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
@@ -390,13 +392,13 @@ impl From<Item> for Vec<u8> {
         //Length
         let len = bool_vec.len();
         if len < 256 {
-          vec.push(0b011000_01);
+          vec.push(0b001001_01);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b011000_10);
+          vec.push(0b001001_10);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b011000_11);
+          vec.push(0b001001_11);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
@@ -422,10 +424,26 @@ impl From<Item> for Vec<u8> {
           vec.push(ascii as u8);
         }
       },
-      Item::Jis8(_jis8_vec) => {
-        todo!()
+      Item::Jis8(jis8_string) => {
+        // Encode
+        let encoded = ISO_2022_JP.encode(&jis8_string, encoding::EncoderTrap::Ignore).unwrap();
+        // Item Code + Length
+        let len = encoded.len();
+        if len < 256 {
+          vec.push(0b010001_01);
+          vec.push(len as u8);
+        } else if len < 65536 {
+          vec.push(0b010001_10);
+          vec.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+          vec.push(0b010001_11);
+          vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
+        };
+        // Vector
+        vec.extend_from_slice(&encoded);
       },
       Item::Localized(_widechar_format, _widechar_vec) => {
+        // 010010_00
         todo!()
       },
       Item::Signed8(i8_vec) => {
@@ -504,13 +522,13 @@ impl From<Item> for Vec<u8> {
         //Length
         let len = f8_vec.len() * 8;
         if len < 256 {
-          vec.push(0b011000_01);
+          vec.push(0b100000_01);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b011000_10);
+          vec.push(0b100000_10);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b011000_11);
+          vec.push(0b100000_11);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
@@ -522,13 +540,13 @@ impl From<Item> for Vec<u8> {
         //Length
         let len = f4_vec.len() * 4;
         if len < 256 {
-          vec.push(0b011000_01);
+          vec.push(0b100100_01);
           vec.push(len as u8);
         } else if len < 65536 {
-          vec.push(0b011000_10);
+          vec.push(0b100100_10);
           vec.extend_from_slice(&(len as u16).to_be_bytes());
         } else {
-          vec.push(0b011000_11);
+          vec.push(0b100100_11);
           vec.extend_from_slice(&(len as u32).to_be_bytes()[0..3]);
         };
         //Vector
