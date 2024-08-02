@@ -244,7 +244,7 @@ pub enum Item {
   /// Note: Used only by item 'TEXT' in S10F1, S10F3, S10F5, and S10F9
   /// 
   /// 2-byte character string.
-  Local(u16, Vec<u8>) = format::LOCAL,
+  Local(LocalizedStringHeader, Vec<u8>) = format::LOCAL,
 
   /// ### BINARY
   /// **Based on SEMI E5§9.2.2**
@@ -855,7 +855,7 @@ impl TryFrom<Vec<u8>> for Item {
 /// ## LOCALIZED STRING HEADER
 /// **Based on SEMI E5§9.4**
 #[repr(u16)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LocalizedStringHeader {
   //Universal
   Ucs2 = 1,
