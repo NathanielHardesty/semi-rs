@@ -9,11 +9,13 @@ description = "High-Speed SECS Message Services"
 edition = "2021"
 #include
 keywords = ["protocol", "network", "networking", "client", "semi"]
-#license
+license = "MIT"
 repository = "https://github.com/NathanielHardesty/semi-rs"
 readme = "readme.md"
 rust-version = "1.79"
 
 [dependencies]
+#oneshot is MIT or Apache-2.0
 oneshot = "0.1.6"
+
 semi_e5 = {path = "../semi_e5", version = "0.1.0"}

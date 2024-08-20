@@ -88,7 +88,7 @@ mod temp {
 //! ---------------------------------------------------------------------------
 //! 
 //! - S7:  Process Program Load
-//! (Required Only if Equipment Implements Process Programs)
+//!   (Required Only if Equipment Implements Process Programs)
 //!   - F1/2:   Process Program Load Inquire/Grant               (PPI/PPG)
 //!   - F3/4:   Process Program Send/Acknowledge                 (PPS/PPA)
 //!   - F5/6:   Process Program Request/Data                     (PPR/PPD)
@@ -125,8 +125,8 @@ mod temp {
 //! ---------------------------------------------------------------------------
 //! 
 //! - S13: Data Set Transfers
-//! (Required Only if Equipment Implements E139 Recipes, Large E42 Recipes,
-//! or Large Process Programs)
+//!   (Required Only if Equipment Implements E139 Recipes, Large E42 Recipes,
+//!   or Large Process Programs)
 //!   - F1/2:   Send Data Set Send/Acknowledge                   (DSSS/DSSA)
 //!   - F3/4:   Open Data Set Request/Data                       (DSOR/DSOD)
 //!   - F5/6:   Read Data Set Request/Data                       (DSSR/DSRD)
@@ -141,7 +141,7 @@ mod temp {
 //! ---------------------------------------------------------------------------
 //! 
 //! - S15: Recipe Management
-//! (Required Only if Equipment Implements E42 Recipes)
+//!   (Required Only if Equipment Implements E42 Recipes)
 //!   - F1/2:   Recipe Management Multi-block Inquire/Grant
 //!   - F21/22: Recipe Action Request/Acknowledge
 //!   - F27/28: Recipe Download Request/Acknowledge
@@ -155,7 +155,7 @@ mod temp {
 //! ---------------------------------------------------------------------------
 //! 
 //! - S19: Recipe and Parameter Management
-//! (Required Only if E139 Recipes are Implemented)
+//!   (Required Only if E139 Recipes are Implemented)
 //!   - F1/2:   Get PDE Directory/Data                           (GPD/PDD)
 //!   - F3/4:   Delete PDE/Acknowledge                           (DPDE/DPDEA)
 //!   - F5/6:   Get PDE Header/Data                              (GPH/PHD)
