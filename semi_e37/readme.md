@@ -87,45 +87,45 @@ Not yet implemented.
 [SEMI E30]: https://store-us.semi.org/products/e03000-semi-e30-specification-for-the-generic-model-for-communications-and-control-of-manufacturing-equipment-gem
 [SEMI E37]: https://store-us.semi.org/products/e03700-semi-e37-high-speed-secs-message-services-hsms-generic-services
 
-[HSMS]:                           https://docs.rs/semi_e37/0.1/semi_e37/index.html
-[Primitive Message]:              https://docs.rs/semi_e37/0.1/semi_e37/struct.PrimitiveMessage
-[Primitive Message Header]:       https://docs.rs/semi_e37/0.1/semi_e37/struct.PrimitiveMessageHeader
-[Primitive Client]:               https://docs.rs/semi_e37/0.1/semi_e37/struct.PrimitiveClient
-[New Primitive Client]:           https://docs.rs/semi_e37/0.1/semi_e37/struct.PrimitiveClient#method.new
-[Primitive Connect Procedure]:    https://docs.rs/semi_e37/0.1/semi_e37/struct.PrimitiveClient#method.connect
-[Primitive Disconnect Procedure]: https://docs.rs/semi_e37/0.1/semi_e37/struct.PrimitiveClient#method.disconnect
-[Primitive Transmit Procedure]:   https://docs.rs/semi_e37/0.1/semi_e37/struct.PrimitiveClient#method.transmit
-[Connection State]:               https://docs.rs/semi_e37/0.1/semi_e37/enum.ConnectionState
-[Connection Mode]:                https://docs.rs/semi_e37/0.1/semi_e37/enum.ConnectionMode
+[HSMS]:                           https://docs.rs/semi_e37/0.1.0/semi_e37/index.html
+[Primitive Message]:              https://docs.rs/semi_e37/0.1.0/semi_e37/struct.PrimitiveMessage
+[Primitive Message Header]:       https://docs.rs/semi_e37/0.1.0/semi_e37/struct.PrimitiveMessageHeader
+[Primitive Client]:               https://docs.rs/semi_e37/0.1.0/semi_e37/struct.PrimitiveClient
+[New Primitive Client]:           https://docs.rs/semi_e37/0.1.0/semi_e37/struct.PrimitiveClient#method.new
+[Primitive Connect Procedure]:    https://docs.rs/semi_e37/0.1.0/semi_e37/struct.PrimitiveClient#method.connect
+[Primitive Disconnect Procedure]: https://docs.rs/semi_e37/0.1.0/semi_e37/struct.PrimitiveClient#method.disconnect
+[Primitive Transmit Procedure]:   https://docs.rs/semi_e37/0.1.0/semi_e37/struct.PrimitiveClient#method.transmit
+[Connection State]:               https://docs.rs/semi_e37/0.1.0/semi_e37/enum.ConnectionState
+[Connection Mode]:                https://docs.rs/semi_e37/0.1.0/semi_e37/enum.ConnectionMode
 
-[HSMS Message]:                   https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsMessage
-[HSMS Message ID]:                https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsMessageID
-[HSMS Message Contents]:          https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents
-[Data Message]:                   https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents#variant.DataMessage
-[Select.req]:                     https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents#variant.SelectRequest
-[Select.rsp]:                     https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents#variant.SelectResponse
-[Deselect.req]:                   https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents#variant.DeselectRequest
-[Deselect.rsp]:                   https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents#variant.DeselectResponse
-[Linktest.req]:                   https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents#variant.LinktestRequest
-[Linktest.rsp]:                   https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents#variant.LinktestResponse
-[Reject.req]:                     https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents#variant.RejectRequest
-[Separate.req]:                   https://docs.rs/semi_e37/0.1/semi_e37/enum.HsmsMessageContents#variant.SeparateRequest
-[HSMS Client]:                    https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient
-[New HSMS Client]:                https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient#method.new
-[HSMS Connect Procedure]:         https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient#method.connect
-[HSMS Disconnect Procedure]:      https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient#method.disconnect
-[HSMS Data Procedure]:            https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient#method.data
-[HSMS Select Procedure]:          https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient#method.select
-[HSMS Deselect Procedure]:        https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient#method.deselect
-[HSMS Linktest Procedure]:        https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient#method.linktest
-[HSMS Separate Procedure]:        https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient#method.separate
-[HSMS Reject Procedure]:          https://docs.rs/semi_e37/0.1/semi_e37/struct.HsmsClient#method.reject
-[Selection State]:                https://docs.rs/semi_e37/0.1/semi_e37/enum.SelectionState
-[Parameter Settings]:             https://docs.rs/semi_e37/0.1/semi_e37/struct.ParameterSettings
+[HSMS Message]:                   https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsMessage
+[HSMS Message ID]:                https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsMessageID
+[HSMS Message Contents]:          https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents
+[Data Message]:                   https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents#variant.DataMessage
+[Select.req]:                     https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents#variant.SelectRequest
+[Select.rsp]:                     https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents#variant.SelectResponse
+[Deselect.req]:                   https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents#variant.DeselectRequest
+[Deselect.rsp]:                   https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents#variant.DeselectResponse
+[Linktest.req]:                   https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents#variant.LinktestRequest
+[Linktest.rsp]:                   https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents#variant.LinktestResponse
+[Reject.req]:                     https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents#variant.RejectRequest
+[Separate.req]:                   https://docs.rs/semi_e37/0.1.0/semi_e37/enum.HsmsMessageContents#variant.SeparateRequest
+[HSMS Client]:                    https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient
+[New HSMS Client]:                https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient#method.new
+[HSMS Connect Procedure]:         https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient#method.connect
+[HSMS Disconnect Procedure]:      https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient#method.disconnect
+[HSMS Data Procedure]:            https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient#method.data
+[HSMS Select Procedure]:          https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient#method.select
+[HSMS Deselect Procedure]:        https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient#method.deselect
+[HSMS Linktest Procedure]:        https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient#method.linktest
+[HSMS Separate Procedure]:        https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient#method.separate
+[HSMS Reject Procedure]:          https://docs.rs/semi_e37/0.1.0/semi_e37/struct.HsmsClient#method.reject
+[Selection State]:                https://docs.rs/semi_e37/0.1.0/semi_e37/enum.SelectionState
+[Parameter Settings]:             https://docs.rs/semi_e37/0.1.0/semi_e37/struct.ParameterSettings
 
-[Connection State Transition]:    https://docs.rs/semi_e37/0.1/semi_e37/enum.ConnectionStateTransition
-[Presentation Type]:              https://docs.rs/semi_e37/0.1/semi_e37/enum.PresentationType
-[Session Type]:                   https://docs.rs/semi_e37/0.1/semi_e37/enum.SessionType
-[Select Status]:                  https://docs.rs/semi_e37/0.1/semi_e37/enum.SelectStatus
-[Deselect Status]:                https://docs.rs/semi_e37/0.1/semi_e37/enum.DeselectStatus
-[Reject Reason]:                  https://docs.rs/semi_e37/0.1/semi_e37/enum.RejectReason
+[Connection State Transition]:    https://docs.rs/semi_e37/0.1.0/semi_e37/enum.ConnectionStateTransition
+[Presentation Type]:              https://docs.rs/semi_e37/0.1.0/semi_e37/enum.PresentationType
+[Session Type]:                   https://docs.rs/semi_e37/0.1.0/semi_e37/enum.SessionType
+[Select Status]:                  https://docs.rs/semi_e37/0.1.0/semi_e37/enum.SelectStatus
+[Deselect Status]:                https://docs.rs/semi_e37/0.1.0/semi_e37/enum.DeselectStatus
+[Reject Reason]:                  https://docs.rs/semi_e37/0.1.0/semi_e37/enum.RejectReason

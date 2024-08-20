@@ -1,10 +1,10 @@
 [workspace]
 
+resolver = "2"
+
 members = [
   "semi_e5",
   "semi_e30",
   "semi_e37",
   "example",
 ]
-
-resolver = "2"

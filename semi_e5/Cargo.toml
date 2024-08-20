@@ -1,20 +1,27 @@
 [package]
+
+# Package
 name = "semi_e5"
 version = "0.1.0"
-
-authors = ["Nathaniel Hardesty"]
-categories = ["network-programming"]
 description = "SEMI Equipment Communications Standard 2 - Message Content"
-#documentation
-edition = "2021"
-#include
-keywords = ["protocol", "network", "networking", "semi"]
+categories = ["network-programming"]
+keywords = ["protocol", "network", "networking", "semi", "semiconductor"]
+
+# Authorship
+authors = ["Nathaniel Hardesty"]
 license = "MIT"
-repository = "https://github.com/NathanielHardesty/semi-rs"
+
+# Documentation
 readme = "readme.md"
-rust-version = "1.79"
+repository = "https://github.com/NathanielHardesty/semi-rs"
+
+# Rust
+edition = "2021"
+rust-version = "1.82"
+
 
 [dependencies]
+
 #num_enum is BSD-3-Clause or MIT or Apache-2.0
 num_enum = "0.7.2"
 

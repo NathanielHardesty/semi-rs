@@ -1,21 +1,30 @@
 [package]
+
+# Package
 name = "semi_e37"
 version = "0.1.0"
-
-authors = ["Nathaniel Hardesty"]
-categories = ["network-programming"]
 description = "High-Speed SECS Message Services"
-#documentation
-edition = "2021"
-#include
-keywords = ["protocol", "network", "networking", "client", "semi"]
+categories = ["network-programming"]
+keywords = ["protocol", "network", "networking", "semi", "semiconductor"]
+
+# Authorship
+authors = ["Nathaniel Hardesty"]
 license = "MIT"
-repository = "https://github.com/NathanielHardesty/semi-rs"
+
+# Documentation
 readme = "readme.md"
-rust-version = "1.79"
+repository = "https://github.com/NathanielHardesty/semi-rs"
+
+# Rust
+edition = "2021"
+rust-version = "1.82"
+
 
 [dependencies]
+
+#semi_e5 is MIT
+semi_e5 = "0.1.0"
+#semi_e5 = {path = "../semi_e5", version = "0.1.0"}
+
 #oneshot is MIT or Apache-2.0
 oneshot = "0.1.6"
-
-semi_e5 = {path = "../semi_e5", version = "0.1.0"}
