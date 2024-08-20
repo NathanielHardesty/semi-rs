@@ -5,7 +5,7 @@ name = "semi_e5"
 version = "0.1.0"
 description = "SEMI Equipment Communications Standard 2 - Message Content"
 categories = ["network-programming"]
-keywords = ["protocol", "network", "networking", "semi", "semiconductor"]
+keywords = ["secs", "semi", "presentation", "protocol", "network"]
 
 # Authorship
 authors = ["Nathaniel Hardesty"]

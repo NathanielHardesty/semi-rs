@@ -5,7 +5,7 @@ name = "semi_e37"
 version = "0.1.1"
 description = "High-Speed SECS Message Services"
 categories = ["network-programming"]
-keywords = ["protocol", "network", "networking", "semi", "semiconductor"]
+keywords = ["hsms", "semi", "session", "protocol", "network"]
 
 # Authorship
 authors = ["Nathaniel Hardesty"]
