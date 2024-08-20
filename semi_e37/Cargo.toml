@@ -22,9 +22,9 @@ rust-version = "1.82"
 
 [dependencies]
 
-#semi_e5 is MIT
+# semi_e5 is MIT
 semi_e5 = "0.1.0"
 #semi_e5 = {path = "../semi_e5", version = "0.1.0"}
 
-#oneshot is MIT or Apache-2.0
+# oneshot is MIT or Apache-2.0
 oneshot = "0.1.6"
