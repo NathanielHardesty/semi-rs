@@ -162,22 +162,101 @@ pub enum Error {
 /// ## ITEM FORMAT
 /// **Based on SEMI E5§9.2.2**
 pub mod format {
-  pub const LIST  : u8 = 0b000000_00;
-  pub const BIN   : u8 = 0b001000_00;
-  pub const BOOL  : u8 = 0b001001_00;
-  pub const ASCII : u8 = 0b010000_00;
-  pub const JIS8  : u8 = 0b010001_00;
-  pub const LOCAL : u8 = 0b010010_00;
-  pub const I8    : u8 = 0b011000_00;
-  pub const I1    : u8 = 0b011001_00;
-  pub const I2    : u8 = 0b011010_00;
-  pub const I4    : u8 = 0b011100_00;
-  pub const F8    : u8 = 0b100000_00;
-  pub const F4    : u8 = 0b100100_00;
-  pub const U8    : u8 = 0b101000_00;
-  pub const U1    : u8 = 0b101001_00;
-  pub const U2    : u8 = 0b101010_00;
-  pub const U4    : u8 = 0b101100_00;
+  /// ### LIST
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o00**
+  pub const LIST: u8 = 0b000000_00;
+
+  /// ### BINARY
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o10**
+  pub const BIN: u8 = 0b001000_00;
+
+  /// ### BOOLEAN
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o11**
+  pub const BOOL: u8 = 0b001001_00;
+
+  /// ### ASCII
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o20**
+  pub const ASCII: u8 = 0b010000_00;
+
+  /// ### JIS-8
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o21**
+  pub const JIS8: u8 = 0b010001_00;
+
+  /// ### LOCALIZED STRING
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o22**
+  pub const LOCAL: u8 = 0b010010_00;
+
+  /// ### 8-BYTE SIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o30**
+  pub const I8: u8 = 0b011000_00;
+
+  /// ### 1-BYTE SIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o31**
+  pub const I1: u8 = 0b011001_00;
+
+  /// ### 2-BYTE SIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o32**
+  pub const I2: u8 = 0b011010_00;
+
+  /// ### 4-BYTE SIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o34**
+  pub const I4: u8 = 0b011100_00;
+
+  /// ### 8-BYTE FLOATING POINT NUMBER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o40**
+  pub const F8: u8 = 0b100000_00;
+
+  /// ### 4-BYTE FLOATING POINT NUMBER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o44**
+  pub const F4: u8 = 0b100100_00;
+
+  /// ### 8-BYTE UNSIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o50**
+  pub const U8: u8 = 0b101000_00;
+
+  /// ### 1-BYTE UNSIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o51**
+  pub const U1: u8 = 0b101001_00;
+  
+  /// ### 2-BYTE UNSIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// **Format Code 0o52**
+  pub const U2: u8 = 0b101010_00;
+
+  /// ### 4-BYTE UNSIGNED INTEGER
+  /// **Based on SEMI E5§9.2.2**
+  /// 
+  /// - **Format Code 0o54**
+  pub const U4: u8 = 0b101100_00;
 }
 
 /// ## GENERIC ITEM
@@ -201,10 +280,6 @@ pub enum Item {
   /// ### LIST
   /// **Based on SEMI E5§9.3**
   /// 
-  /// - **Format Code 0o00**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// A [List] is an ordered set of elements, where elements are [Item]s.
   /// 
   /// The Item Header of a [List] is unique in that the Item Length refers to
@@ -217,29 +292,17 @@ pub enum Item {
   /// ### ASCII
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o20**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// ASCII character string.
   Ascii(Vec<Char>) = format::ASCII,
 
   /// ### JIS-8
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o21**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// JIS-8 character string.
   Jis8(String) = format::JIS8,
 
   /// ### LOCALIZED STRING
   /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o22**
-  /// 
-  /// -------------------------------------------------------------------------
   /// 
   /// Note: Used only by item 'TEXT' in S10F1, S10F3, S10F5, and S10F9
   /// 
@@ -249,20 +312,12 @@ pub enum Item {
   /// ### BINARY
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o10**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// Single-byte quanitity where the value can be anything and does not
   /// otherwise have a strictly defined meaning.
   Bin(Vec<u8>) = format::BIN,
 
   /// ### BOOLEAN
   /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o11**
-  /// 
-  /// -------------------------------------------------------------------------
   /// 
   /// Single-byte quantity where a value of 0 is equivalent to 'false' and any
   /// non-zero value is equivalent to 'true'.
@@ -271,19 +326,11 @@ pub enum Item {
   /// ### 1-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o31**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// 1-byte two's compliment integer.
   I1(Vec<i8>) = format::I1,
 
   /// ### 2-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o32**
-  /// 
-  /// -------------------------------------------------------------------------
   /// 
   /// 2-byte two's compliment integer.
   I2(Vec<i16>) = format::I2,
@@ -291,19 +338,11 @@ pub enum Item {
   /// ### 4-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o34**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// 4-byte two's compliment integer.
   I4(Vec<i32>) = format::I4,
 
   /// ### 8-BYTE SIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o30**
-  /// 
-  /// -------------------------------------------------------------------------
   /// 
   /// 8-byte two's compliment integer.
   I8(Vec<i64>) = format::I8,
@@ -311,19 +350,11 @@ pub enum Item {
   /// ### 1-BYTE UNSIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o51**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// 1-byte integer.
   U1(Vec<u8>) = format::U1,
 
   /// ### 2-BYTE UNSIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o52**
-  /// 
-  /// -------------------------------------------------------------------------
   /// 
   /// 2-byte integer.
   U2(Vec<u16>) = format::U2,
@@ -331,19 +362,11 @@ pub enum Item {
   /// ### 4-BYTE UNSIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o54**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// 4-byte integer.
   U4(Vec<u32>) = format::U4,
 
   /// ### 8-BYTE UNSIGNED INTEGER
   /// **Based on SEMI E5§9.2.2**
-  /// 
-  /// - **Format Code 0o50**
-  /// 
-  /// -------------------------------------------------------------------------
   /// 
   /// 8-byte integer.
   U8(Vec<u64>) = format::U8,
@@ -351,39 +374,162 @@ pub enum Item {
   /// ### 4-BYTE FLOATING POINT NUMBER
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o44**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// 4-byte IEEE-754 floating point number.
   F4(Vec<f32>) = format::F4,
 
   /// ### 8-BYTE FLOATING POINT NUMBER
   /// **Based on SEMI E5§9.2.2**
   /// 
-  /// - **Format Code 0o40**
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
   /// 8-byte IEEE-754 floating point number.
   F8(Vec<f64>) = format::F8,
 }
 impl Item {
-  pub fn bin  (value: u8  ) -> Self {Self::Bin  (vec![value])}
-  pub fn bool (value: bool) -> Self {Self::Bool (vec![value])}
-  pub fn i1   (value: i8  ) -> Self {Self::I1   (vec![value])}
-  pub fn i2   (value: i16 ) -> Self {Self::I2   (vec![value])}
-  pub fn i4   (value: i32 ) -> Self {Self::I4   (vec![value])}
-  pub fn i8   (value: i64 ) -> Self {Self::I8   (vec![value])}
-  pub fn u1   (value: u8  ) -> Self {Self::U1   (vec![value])}
-  pub fn u2   (value: u16 ) -> Self {Self::U2   (vec![value])}
-  pub fn u4   (value: u32 ) -> Self {Self::U4   (vec![value])}
-  pub fn u8   (value: u64 ) -> Self {Self::U8   (vec![value])}
-  pub fn f4   (value: f32 ) -> Self {Self::F4   (vec![value])}
-  pub fn f8   (value: f64 ) -> Self {Self::F8   (vec![value])}
+  /// ### SINGLE BINARY ITEM
+  /// 
+  /// Constructs a [Binary] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:   Item
+  /// [Binary]: Item::Bin
+  pub fn bin(value: u8) -> Self {
+    Self::Bin(vec![value])
+  }
+
+  /// ### SINGLE BOOLEAN ITEM
+  /// 
+  /// Constructs a [Boolean] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:    Item
+  /// [Boolean]: Item::Bool
+  pub fn bool(value: bool) -> Self {
+    Self::Bool(vec![value])
+  }
+
+  /// ### SINGLE 1-BYTE SIGNED INTEGER ITEM
+  /// 
+  /// Constructs a [1-byte Signed Integer] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                  Item
+  /// [1-byte Signed Integer]: Item::I1
+  pub fn i1(value: i8) -> Self {
+    Self::I1(vec![value])
+  }
+
+  /// ### SINGLE 2-BYTE SIGNED INTEGER ITEM
+  /// 
+  /// Constructs a [2-byte Signed Integer] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                  Item
+  /// [2-byte Signed Integer]: Item::I2
+  pub fn i2(value: i16) -> Self {
+    Self::I2(vec![value])
+  }
+
+  /// ### SINGLE 4-BYTE SIGNED INTEGER ITEM
+  /// 
+  /// Constructs a [4-byte Signed Integer] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                  Item
+  /// [4-byte Signed Integer]: Item::I4
+  pub fn i4(value: i32) -> Self {
+    Self::I4(vec![value])
+  }
+
+  /// ### SINGLE 8-BYTE SIGNED INTEGER ITEM
+  /// 
+  /// Constructs an [8-byte Signed Integer] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                  Item
+  /// [8-byte Signed Integer]: Item::I8
+  pub fn i8(value: i64) -> Self {
+    Self::I8(vec![value])
+  }
+
+  /// ### SINGLE 1-BYTE UNSIGNED INTEGER ITEM
+  /// 
+  /// Constructs a [1-byte Unsigned Integer] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                    Item
+  /// [1-byte Unsigned Integer]: Item::U1
+  pub fn u1(value: u8) -> Self {
+    Self::U1(vec![value])
+  }
+
+  /// ### SINGLE 2-BYTE UNSIGNED INTEGER ITEM
+  /// 
+  /// Constructs a [2-byte Unsigned Integer] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                    Item
+  /// [2-byte Unsigned Integer]: Item::U2
+  pub fn u2(value: u16) -> Self {
+    Self::U2(vec![value])
+  }
+
+  /// ### SINGLE 4-BYTE UNSIGNED INTEGER ITEM
+  /// 
+  /// Constructs a [4-byte Unsigned Integer] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                    Item
+  /// [4-byte Unsigned Integer]: Item::U4
+  pub fn u4(value: u32) -> Self {
+    Self::U4(vec![value])
+  }
+
+  /// ### SINGLE 8-BYTE UNSIGNED INTEGER ITEM
+  /// 
+  /// Constructs an [8-byte Unsigned Integer] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                    Item
+  /// [8-byte Unsigned Integer]: Item::U8
+  pub fn u8(value: u64) -> Self {
+    Self::U8(vec![value])
+  }
+
+  /// ### SINGLE 4-BYTE FLOATING POINT NUMBER ITEM
+  /// 
+  /// Constructs a [4-byte Floating Point Number] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                         Item
+  /// [4-byte Floating Point Number]: Item::F4
+  pub fn f4(value: f32) -> Self {
+    Self::F4(vec![value])
+  }
+
+  /// ### SINGLE 8-BYTE FLOATING POINT NUMBER ITEM
+  /// 
+  /// Constructs an [8-byte Floating Point Number] [Item] with a single member.
+  /// 
+  /// Provided for convinient syntax of this common use case.
+  /// 
+  /// [Item]:                         Item
+  /// [8-byte Floating Point Number]: Item::F8
+  pub fn f8(value: f64) -> Self {
+    Self::F8(vec![value])
+  }
 }
 impl From<Item> for Vec<u8> {
-  /// ## ITEM -> BINARY DATA
+  /// ### ITEM -> BINARY DATA
   fn from(item: Item) -> Self {
     let mut vec = vec![];
     match item {
@@ -684,7 +830,7 @@ impl From<Item> for Vec<u8> {
 impl TryFrom<Vec<u8>> for Item {
   type Error = Error;
 
-  /// ## BINARY DATA -> ITEM
+  /// ### BINARY DATA -> ITEM
   fn try_from(text: Vec<u8>) -> Result<Self, Self::Error> {
     /// ## INTERNAL CONVERSION FUNCTION
     /// 
