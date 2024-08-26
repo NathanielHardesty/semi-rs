@@ -530,6 +530,12 @@ impl Item {
 }
 impl From<Item> for Vec<u8> {
   /// ### ITEM -> BINARY DATA
+  /// 
+  /// Infallable serialization of an [Item], which can represent an entire tree
+  /// of [Item]s due to [List]s, into binary data.
+  /// 
+  /// [Item]: Item
+  /// [List]: Item::List
   fn from(item: Item) -> Self {
     let mut vec = vec![];
     match item {
@@ -831,6 +837,12 @@ impl TryFrom<Vec<u8>> for Item {
   type Error = Error;
 
   /// ### BINARY DATA -> ITEM
+  /// 
+  /// Fallable deserialization of binary data into an [Item], which can
+  /// represent an entire tree of [Item]s due to [List]s.
+  /// 
+  /// [Item]: Item
+  /// [List]: Item::List
   fn try_from(text: Vec<u8>) -> Result<Self, Self::Error> {
     /// ## INTERNAL CONVERSION FUNCTION
     /// 
@@ -1715,6 +1727,7 @@ pub mod items {
   /// 
   /// [BCEQU]: BinCodeEquivalents
   /// [NULBC]: NullBinCode
+  #[derive(Clone, Debug)]
   pub enum BinList {
     Ascii(Vec<Char>),
     U1(Vec<u8>),
@@ -1902,10 +1915,65 @@ pub mod items {
   /// #### Used By
   /// 
   /// - S13F3, S13F6
+  #[derive(Clone, Copy, Debug)]
   pub struct Checkpoint(pub u32);
   singleformat!{Checkpoint, U4}
 
   // TODO: CMDA
+  // Usual about reserved/user enum values.
+
+  // TODO: CMDMAX
+  // How to deal with negative values being invalid even though you can use signed int?
+
+  /// ## CNAME
+  /// 
+  /// Command name, maximum 16 characters.
+  /// 
+  /// A text string which is unique among other command names in a PCD, which
+  /// describes the processing done by the equipment for the corresponding
+  /// [CCODE].
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S7F22
+  /// 
+  /// [CCODE]: CommandCode
+  #[derive(Clone, Debug)]
+  pub struct CommandName(Vec<Char>);
+  singleformat_vec!{CommandName, Ascii, 0..=16, Char}
+
+  /// ## COLCT
+  /// 
+  /// Column count, in die increments.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S12F1, S12F4
+  #[derive(Clone, Copy, Debug)]
+  pub enum ColumnCount {
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat!{ColumnCount, U1, U2, U4, U8}
+
+  /// ## COLHDR
+  /// 
+  /// Text description of contents of [TBLELT], 1-20 characters.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S13F13, S13F15, S13F16
+  #[derive(Clone, Debug)]
+  pub struct ColumnHeader(Vec<Char>);
+  singleformat_vec!{ColumnHeader, Ascii, 1..=20, Char}
 
   /// ## COMMACK
   /// 
@@ -1921,10 +1989,265 @@ pub mod items {
   #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
   #[repr(u8)]
   pub enum CommAck {
+    /// ### ACCEPTED
     Accepted = 0,
-    Denied   = 1,
+
+    /// ### DENIED
+    Denied = 1,
   }
   singleformat_enum!{CommAck, Bin}
+
+  /// ## COMPARISONOPERATOR
+  /// 
+  /// Choice of available operators that compare the supplied value to the
+  /// current attribute value.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S19F1
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum ComparisonOperator {
+    /// ### EQ
+    /// 
+    /// Equals, numeric or string.
+    EqualTo = 0,
+
+    /// ### NOTEQ
+    /// 
+    /// Not Equal, numeric or string.
+    NotEqualTo = 1,
+
+    /// ### LT
+    /// 
+    /// Less Than, numeric.
+    LessThan = 2,
+
+    /// ### LE
+    /// 
+    /// Less than or equal to, numeric.
+    LessThanOrEqualTo = 3,
+
+    /// ### GT
+    /// 
+    /// Greater than, numeric.
+    GreaterThan = 4,
+
+    /// ### GE
+    /// 
+    /// Greater than or equal to, numeric.
+    GreaterThanOrEqualTo = 5,
+
+    /// ### LIKE
+    /// 
+    /// Contains the substring, string.
+    Like = 6,
+
+    /// ### NOTLIKE
+    /// 
+    /// Does not contain the substring, string.
+    NotLike = 7,
+  }
+  singleformat_enum!{ComparisonOperator, U1}
+
+  /// ## CONDITION
+  /// 
+  /// Provides condition information for a subsystem component.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [CONDITIONLIST]
+  /// 
+  /// [CONDITIONLIST]: ConditionList
+  #[derive(Clone, Debug)]
+  pub struct Condition(pub Vec<Char>);
+  singleformat_vec!{Condition, Ascii}
+
+  /// ## CONDITIONLIST
+  /// 
+  /// A list of [CONDITION] data sent in a fixed order.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S18F16
+  /// 
+  /// [CONDITION]: Condition
+  pub type ConditionList = VecList<Condition>;
+
+  /// ## CPACK
+  /// 
+  /// Command parameter acknowledge code, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F42
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum CommandParamaterAcknowledge {
+    /// CPNAME does not exist.
+    ParameterNameDoesNotExist = 1,
+
+    /// Illegal value specified for CPVAL.
+    IllegalValue = 2,
+
+    /// Illegal format specified for CPVAL.
+    IllegalFormat = 3,
+  }
+  singleformat_enum!{CommandParamaterAcknowledge, Bin}
+
+  // TODO: CPNAME
+  // How to combine ASCII vec and ints which are likely not vec?
+
+  // TODO: CPVAL
+  // Just seems like a lot of work right now, should probably be done alongside CPNAME.
+
+  /// ## CSAACK
+  /// 
+  /// Equipment acknowledge code, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F8
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum EquipmentAcknowledge {
+    Ok = 0,
+    Busy = 1,
+    InvalidSPID = 2,
+    InvalidData = 3,
+  }
+  singleformat_enum!{EquipmentAcknowledge, Bin}
+
+  /// ## CTLJOBCMD
+  /// 
+  /// Control Job command code.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S16F27
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum ControlJobCommand {
+    /// ### CJStart
+    Start = 1,
+
+    /// ### CJPause
+    Pause = 2,
+
+    /// ### CJResume
+    Resume = 3,
+
+    /// ### CJCancel
+    Cancel = 4,
+
+    /// ### CJDeselect
+    Deselect = 5,
+
+    /// ### CJStop
+    Stop = 6,
+
+    /// ### CJAbort
+    Abort = 7,
+
+    /// ### CJHOQ
+    HeadOfQueue = 8,
+  }
+  singleformat_enum!{ControlJobCommand, U1}
+
+  // TODO: CTLJOBID
+  // Something about OBJID.
+
+  /// ## DATA
+  /// 
+  /// A string of unformatted data.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S3F30, S3F31
+  /// - S18F6, S18F7
+  #[derive(Clone, Debug)]
+  pub struct Data(pub Vec<Char>);
+  singleformat_vec!{Data, Ascii}
+
+  /// ## DATAACK
+  /// 
+  /// Data acknowledge code.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S14F22
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum DataAcknowledge {
+    Ok = 0,
+    UnknownDataID = 1,
+    InvalidParameter = 2,
+  }
+  singleformat_enum!{DataAcknowledge, Bin}
+
+  // TODO: DATAID
+  // How to combine ASCII vec and ints which are likely not vec?
+
+  /// ## DATALENGTH
+  /// 
+  /// Total bytes to be sent.
+  /// 
+  /// TODO: Do negative numbers need to be restricted?
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F39
+  /// - S3F15, S3F29, S3F31
+  /// - S4F25
+  /// - S6F5
+  /// - S13F11
+  /// - S14F23
+  /// - S16F1
+  /// - S18F5, S18F7
+  /// - S19F19
+  #[derive(Clone, Debug)]
+  pub enum DataLength {
+    I1(i8),
+    I2(i16),
+    I4(i32),
+    I8(i64),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat!{DataLength, I1, I2, I4, I8, U1, U2, U4, U8}
+
+  /// ## DVVALNAME
+  /// 
+  /// Descriptive name for a data variable.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S1F22
+  #[derive(Clone, Debug)]
+  pub struct DataVaraibleValueName(pub Vec<Char>);
+  singleformat_vec!{DataVaraibleValueName, Ascii}
 
   /// ## ERRCODE
   /// 
@@ -2027,6 +2350,33 @@ pub mod items {
     //65536+: User Defined
   }
 
+  /// ## ERRTEXT
+  /// 
+  /// Text string describing the error noted in the corresponding [ERRCODE].
+  /// 
+  /// Maximum 120 characters.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S1F20
+  /// - S3F18, S3F20, S3F22, S3F24, S3F26, S3F28, S3F30, S3F32, S3F34, S3F36
+  /// - S4F20, S4F22, S4F23, S4F31, S4F33
+  /// - S5F14, S5F15, S5F18
+  /// - S6F25
+  /// - S13F14, S13F16
+  /// - S14F2, S14F4, S14F6, S14F8, S14F10, S14F12, S14F14, S14F16, S14F18,
+  ///   S14F20, S14F21, S14F26, S14F28
+  /// - S15F4, S15F6, S15F8, S15F10, S15F12, S15F14, S15F16, S15F18, S15F20,
+  ///   S15F22, S15F24, S15F26, S15F28, S15F30, S15F32, S15F34, S15F36, S15F38,
+  ///   S15F40, S15F42, S15F44, S15F48, S15F53
+  /// - S16F4, S16F6, S16F7, S16F12, S16F16, S16F18, S16F24, S16F26, S16F28
+  /// - S17F4, S17F8, S17F18
+  #[derive(Clone, Debug)]
+  pub struct ErrorText(Vec<Char>);
+  singleformat_vec!{ErrorText, Ascii, 0..=120, Char}
+
   /// ## MDLN
   /// 
   /// Equipment Model Type, 20 bytes max.
@@ -2044,23 +2394,6 @@ pub mod items {
   #[derive(Clone, Debug)]
   pub struct ModelName(Vec<Char>);
   singleformat_vec!{ModelName, Ascii, 0..=20, Char}
-
-  /// ## SOFTREV
-  /// 
-  /// Software Revision Code, 20 bytes max.
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// #### Used By
-  /// 
-  /// - [S1F2], [S1F13], [S1F14]
-  /// - [S7F22], [S7F23], [S7F26], [S7F31], [S7F39], [S7F43]
-  /// 
-  /// [S1F2]:  crate::messages::s1::EquipmentOnLineData
-  /// [S1F14]: crate::messages::s1::EquipmentCRA
-  #[derive(Clone, Debug)]
-  pub struct SoftwareRevision(Vec<Char>);
-  singleformat_vec!{SoftwareRevision, Ascii, 0..=20, Char}
 
   /// ## NULBC
   /// 
@@ -2136,6 +2469,23 @@ pub mod items {
   pub struct StatusFormCode(pub u8);
   singleformat!{StatusFormCode, Bin}
 
+  /// ## SOFTREV
+  /// 
+  /// Software Revision Code, 20 bytes max.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F2], [S1F13], [S1F14]
+  /// - [S7F22], [S7F23], [S7F26], [S7F31], [S7F39], [S7F43]
+  /// 
+  /// [S1F2]:  crate::messages::s1::EquipmentOnLineData
+  /// [S1F14]: crate::messages::s1::EquipmentCRA
+  #[derive(Clone, Debug)]
+  pub struct SoftwareRevision(Vec<Char>);
+  singleformat_vec!{SoftwareRevision, Ascii, 0..=20, Char}
+
   /// ## SV
   /// 
   /// Status variable value.
@@ -2165,19 +2515,13 @@ pub mod items {
     F4(Vec<f32>),
     F8(Vec<f64>),
   }
-  multiformat_vec!{
-    StatusVariableValue,
-    List,
-    Bin, Bool,
-    Ascii, Jis8,
-    I1, I2, I4, I8,
-    U1, U2, U4, U8,
-    F4, F8,
-  }
+  multiformat_vec!{StatusVariableValue, List, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
 
   /// ## SVID
   /// 
   /// Status variable ID.
+  /// 
+  /// TODO: Add ASCII.
   /// 
   /// -------------------------------------------------------------------------
   /// 
@@ -2190,7 +2534,6 @@ pub mod items {
   /// [S1F11]: crate::messages::s1::StatusVariableNamelistRequest
   /// [S1F12]: crate::messages::s1::StatusVariableNamelistReply
   pub enum StatusVariableID {
-    Bin(u8),
     I1(i8),
     I2(i16),
     I4(i32),
@@ -2200,12 +2543,7 @@ pub mod items {
     U4(u32),
     U8(u64),
   }
-  multiformat!{
-    StatusVariableID,
-    Bin,
-    I1, I2, I4, I8,
-    U1, U2, U4, U8,
-  }
+  multiformat!{StatusVariableID, I1, I2, I4, I8, U1, U2, U4, U8}
 
   /// ## SVNAME
   /// 
