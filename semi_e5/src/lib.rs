@@ -2680,6 +2680,54 @@ pub mod items {
   pub struct ErrorText(Vec<Char>);
   singleformat_vec!{ErrorText, Ascii, 0..=120, Char}
 
+  /// ## GRANT
+  /// 
+  /// Grant code, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F2, S2F40
+  /// - S3F16
+  /// - S4F26
+  /// - S13F12
+  /// - S14F24
+  /// - S16F2
+  /// - S19F20
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum Grant {
+    Granted = 0,
+    Busy = 1,
+    NoSpaceAvailable = 2,
+    DuplicateDataID = 3,
+  }
+  singleformat_enum!{Grant, Bin}
+
+  /// ## LENGTH
+  /// 
+  /// Length of the service program or process program in bytes.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F1
+  /// - S7F1, S7F29
+  #[derive(Clone, Copy, Debug)]
+  pub enum Length {
+    I1(i8),
+    I2(i16),
+    I4(i32),
+    I8(i64),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat!{Length, I1, I2, I4, I8, U1, U2, U4, U8}
+
   /// ## MDLN
   /// 
   /// Equipment Model Type, 20 bytes max.
@@ -2841,6 +2889,82 @@ pub mod items {
   pub struct SoftwareRevision(Vec<Char>);
   singleformat_vec!{SoftwareRevision, Ascii, 0..=20, Char}
 
+  /// ## SPAACK
+  /// 
+  /// Service program acknowledge code, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F4
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum ServiceProgramAcknowledge {
+    Ok = 0,
+    InvalidData = 1,
+  }
+  singleformat_enum!{ServiceProgramAcknowledge, Bin}
+
+  /// ## SPD
+  /// 
+  /// Service program data.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F3, S2F6
+  #[derive(Clone, Debug)]
+  pub struct ServiceProgramData(pub Vec<u8>);
+  singleformat_vec!{ServiceProgramData, Bin}
+
+  /// ## SPID
+  /// 
+  /// Service program ID, 6 characters.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F1, S2F4, S2F7, S2F9, S2F12
+  #[derive(Clone, Copy, Debug)]
+  pub struct ServiceProgramID(pub [Char; 6]);
+  impl From<ServiceProgramID> for Item {
+    fn from(value: ServiceProgramID) -> Self {
+      let mut vec = vec![];
+      vec.extend_from_slice(&value.0);
+      Item::Ascii(vec)
+    }
+  }
+  impl TryFrom<Item> for ServiceProgramID {
+    type Error = Error;
+    
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::Ascii(vec) => {
+          if vec.len() == 6 {
+            Ok(Self(vec[0..6].try_into().unwrap()))
+          } else {
+            Err(WrongFormat)
+          }
+        },
+        _ => Err(WrongFormat),
+      }
+    }
+  }
+
+  /// ## SPR
+  /// 
+  /// Service program results.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F10
+  pub type ServiceProgramResults = Item;
+
   /// ## SV
   /// 
   /// Status variable value.
@@ -2853,6 +2977,7 @@ pub mod items {
   /// - S6F1
   /// 
   /// [S1F4]: crate::messages::s1::SelectedEquipmentStatusData
+  #[derive(Clone, Debug)]
   pub enum StatusVariableValue {
     List(Vec<Item>),
     Bin(Vec<u8>),
@@ -2888,6 +3013,7 @@ pub mod items {
   /// [S1F3]: crate::messages::s1::SelectedEquipmentStatusRequest
   /// [S1F11]: crate::messages::s1::StatusVariableNamelistRequest
   /// [S1F12]: crate::messages::s1::StatusVariableNamelistReply
+  #[derive(Clone, Copy, Debug)]
   pub enum StatusVariableID {
     I1(i8),
     I2(i16),
@@ -2911,6 +3037,7 @@ pub mod items {
   /// - [S1F12]
   /// 
   /// [S1F12]: crate::messages::s1::StatusVariableNamelistReply
+  #[derive(Clone, Debug)]
   pub struct StatusVariableName(pub Vec<Char>);
   singleformat_vec!{StatusVariableName, Ascii}
 
@@ -4010,7 +4137,306 @@ pub mod messages {
   /// [Stream 10]: crate::messages::s10
   /// [Stream 13]: crate::messages::s13
   /// [Stream 17]: crate::messages::s17
-  pub mod s2 {}
+  pub mod s2 {
+    use crate::*;
+    use crate::Error::*;
+    use crate::items::*;
+
+    /// ## S2F0
+    /// 
+    /// **Abort Transaction**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Used in lieu of an expected reply to abort a transaction.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Header only.
+    pub struct Abort;
+    message_headeronly!{Abort, false, 2, 0}
+
+    /// ## S2F1
+    /// 
+    /// **Service Program Load Inquire (SPI)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Request to send the specified service program.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - 2
+    ///    1. [SPID]
+    ///    2. [LENGTH]
+    /// 
+    /// [SPID]:   ServiceProgramID
+    /// [LENGTH]: Length
+    pub struct ServiceProgramLoadInquire(pub (ServiceProgramID, Length));
+    message_data!{ServiceProgramLoadInquire, true, 2, 1}
+
+    /// ## S2F2
+    /// 
+    /// **Service Program Load Grant (SPG)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Permission to send the service program.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [GRANT]
+    /// 
+    /// [GRANT]: Grant
+    pub struct ServiceProgramLoadGrant(pub Grant);
+    message_data!{ServiceProgramLoadGrant, false, 2, 2}
+
+    /// ## S2F3
+    /// 
+    /// **Service Program Send (SPS)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Data associated with prior [S2F1] inquire.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [SPD]
+    /// 
+    /// [S2F1]: ServiceProgramLoadInquire
+    /// [SPD]:  ServiceProgramData
+    pub struct ServiceProgramSend(pub ServiceProgramData);
+    message_data!{ServiceProgramSend, true, 2, 3}
+
+    /// ## S2F4
+    /// 
+    /// **Service Program Send Acknowledge (SPA)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Acknowledgement of [S2F3].
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [SPAACK]
+    /// 
+    /// [S2F3]:   ServiceProgramSend
+    /// [SPAACK]: ServiceProgramAcknowledge
+    pub struct ServiceProgramSendAcknowledge(pub ServiceProgramAcknowledge);
+    message_data!{ServiceProgramSendAcknowledge, false, 2, 4}
+
+    /// ## S2F5
+    /// 
+    /// **Service Program Load Request (SPR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Request to be sent service program.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [SPID]
+    /// 
+    /// [SPID]: ServiceProgramID
+    pub struct ServiceProgramLoadRequest(pub ServiceProgramID);
+    message_data!{ServiceProgramLoadRequest, true, 2, 5}
+
+    /// ## S2F6
+    /// 
+    /// **Service Program Load Data (SPD)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Service program data.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [SPD]
+    /// 
+    /// Zero-length item means that the service program cannot be returned.
+    /// 
+    /// [SPD]: ServiceProgramData
+    pub struct ServiceProgramLoadData(pub ServiceProgramData);
+    message_data!{ServiceProgramLoadData, false, 2, 6}
+
+    /// ## S2F7
+    /// 
+    /// **Service Program Run Send (CSS)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Request to start service program.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [SPID]
+    /// 
+    /// [SPID]: ServiceProgramID
+    pub struct ServiceProgramRunSend(pub ServiceProgramID);
+    message_data!{ServiceProgramRunSend, true, 2, 7}
+
+    /// ## S2F8
+    /// 
+    /// **Service Program Run Acknowledge (CSA)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Acknowledgement of [S2F7].
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [CSAACK]
+    /// 
+    /// [S2F7]:   ServiceProgramRunSend
+    /// [CSAACK]: EquipmentAcknowledge
+    pub struct ServiceProgramRunAcknowledge(pub EquipmentAcknowledge);
+    message_data!{ServiceProgramRunAcknowledge, false, 2, 8}
+
+    /// ## S2F9
+    /// 
+    /// **Service Program Results Request (SRR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Request for results of service program.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [SPID]
+    /// 
+    /// [SPID]: ServiceProgramID
+    pub struct ServiceProgramResultsRequest(pub ServiceProgramID);
+    message_data!{ServiceProgramResultsRequest, true, 2, 9}
+
+    /// ## S2F10
+    /// 
+    /// **Service Program Results Data (SRD)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Service program results.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [SPR]
+    /// 
+    /// Zero-length item means [SPR] does not exist.
+    /// 
+    /// [SPR]: ServiceProgramResults
+    pub struct ServiceProgramResultsData(pub ServiceProgramResults);
+    message_item!{ServiceProgramResultsData, false, 2, 10}
+
+    /// ## S2F11
+    /// 
+    /// **Service Program Directory Request (SDR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Request service program list.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Header only.
+    pub struct ServiceProgramDirectoryRequest;
+    message_headeronly!{ServiceProgramDirectoryRequest, true, 2, 11}
+
+    /// ## S2F12
+    /// 
+    /// **Service Program Directory Data (SDD)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Service program list.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - N
+    ///    - [SPID]
+    /// 
+    /// N is the number of service programs.
+    /// 
+    /// [SPID]: ServiceProgramID
+    pub struct ServiceProgramDirectoryData(pub VecList<ServiceProgramID>);
+    message_data!{ServiceProgramDirectoryData, false, 2, 12}
+  }
 
   /// # STREAM 3: MATERIAL STATUS
   /// **Based on SEMI E5§10.7**
