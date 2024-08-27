@@ -40,7 +40,7 @@ fn test_equipment() {
               }
               rx_client.data(
                 id,
-                s1::SelectedEquipmentStatusData(semi_e5::items::VecList(vec)).into()
+                s1::SelectedEquipmentStatusData(VecList(vec)).into()
               ).join().unwrap().unwrap();
             },
             Err(_) => {
@@ -57,7 +57,7 @@ fn test_equipment() {
               }
               rx_client.data(
                 id,
-                s1::StatusVariableNamelistReply(semi_e5::items::VecList(vec)).into()
+                s1::StatusVariableNamelistReply(VecList(vec)).into()
               ).join().unwrap().unwrap();
             },
             Err(_) => {
@@ -105,7 +105,7 @@ fn test_equipment() {
               }
               rx_client.data(
                 id,
-                s1::DataVariableNamelist(semi_e5::items::VecList(vec)).into()
+                s1::DataVariableNamelist(VecList(vec)).into()
               ).join().unwrap().unwrap();
             },
             Err(_) => {
@@ -122,7 +122,7 @@ fn test_equipment() {
               }
               rx_client.data(
                 id,
-                s1::CollectionEventNamelist(semi_e5::items::VecList(vec)).into()
+                s1::CollectionEventNamelist(VecList(vec)).into()
               ).join().unwrap().unwrap();
             },
             Err(_) => {

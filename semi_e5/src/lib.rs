@@ -1228,7 +1228,19 @@ pub mod items {
 
   // IMPLEMENTATION MACROS
 
-  /// ## DATA ITEM MACRO: SINGLE ACCEPTED FORMAT, VECTOR LENGTH 1
+  /// ## DATA ITEM MACRO: SINGLE FORMAT
+  /// 
+  /// #### Arguments:
+  /// 
+  /// - **$name**: Name of struct.
+  /// - **$format**: Item format.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Expansion:
+  /// 
+  /// - From<$name> for Item
+  /// - TryFrom<Item> for $name
   macro_rules! singleformat {
     (
       $name:ident,
@@ -1258,7 +1270,24 @@ pub mod items {
     }
   }
 
-  /// ## DATA ITEM MACRO: SINGLE ACCEPTED FORMAT, ANY VECTOR LENGTH
+  /// ## DATA ITEM MACRO: SINGLE FORMAT, VEC
+  /// 
+  /// #### Arguments:
+  /// - **$name**: Name of struct.
+  /// - **$format**: Item format.
+  /// - Optional:
+  ///    - **$range**: Range expression limiting vector length.
+  ///    - **$type**: Type contained in vector.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Expansion:
+  /// 
+  /// - From<$name> for Item
+  /// - TryFrom<Item> for $name
+  /// - Optional:
+  ///    - new(Vec<$type>) -> Option<Self>
+  ///    - read(&self) -> &Vec<$type>
   macro_rules! singleformat_vec {
     (
       $name:ident,
@@ -1300,7 +1329,21 @@ pub mod items {
     }
   }
 
-  /// ## DATA ITEM MACRO: SINGLE ACCEPTED FORMAT, ENUMERATED VALUE
+  /// ## DATA ITEM MACRO: SINGLE FORMAT, ENUM
+  /// 
+  /// #### Arguments
+  /// 
+  /// - **$name**: Name of enum.
+  /// - **$format**: Item format.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Expansion
+  /// 
+  /// - From<$name> for Item
+  /// - TryFrom<Item> for $name
+  /// - From<Vec<$name>> for Item
+  /// - TryFrom<Item> for Vec<$name>
   macro_rules! singleformat_enum {
     (
       $name:ident,
@@ -1355,7 +1398,21 @@ pub mod items {
     }
   }
 
-  /// ## DATA ITEM MACRO: MULTIPLE ACCCEPTED FORMATS, VECTOR LENGTH 1
+  /// ## DATA ITEM MACRO: MULTIFORMAT
+  /// 
+  /// #### Arguments
+  /// 
+  /// - **$name**: Name of enum.
+  /// - **$format**: Item format.
+  /// - Optional:
+  ///    - **$formats**: Further item formats.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Expansion
+  /// 
+  /// - From<$name> for Item
+  /// - TryFrom<Item> for $name
   macro_rules! multiformat {
     (
       $name:ident
@@ -1402,7 +1459,21 @@ pub mod items {
     }
   }
 
-  /// ## DATA ITEM MACRO: MULTIPLE ACCEPTED FORMATS, VECTOR LENGTH 1, PLUS ASCII ANY LENGTH
+  /// ## DATA ITEM MACRO: MULTIFORMAT + ASCII
+  /// 
+  /// #### Arguments
+  /// 
+  /// - **$name**: Name of enum.
+  /// - **$format**: Item format.
+  /// - Optional:
+  ///    - **$formats**: Further item formats.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Expansion
+  /// 
+  /// - From<$name> for Item
+  /// - TryFrom<Item> for $name
   macro_rules! multiformat_ascii {
     (
       $name:ident
@@ -1446,7 +1517,21 @@ pub mod items {
     }
   }
 
-  /// ## DATA ITEM MACRO: MULTIPLE ACCEPTED FORMATS, ANY VECTOR LENGTH
+  /// ## DATA ITEM MACRO: MULTIFORMAT, VEC
+  /// 
+  /// #### Arguments
+  /// 
+  /// - **$name**: Name of enum.
+  /// - **$format**: Item format.
+  /// - Optional:
+  ///    - **$formats**: Further item formats.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Expansion
+  /// 
+  /// - From<$name> for Item
+  /// - TryFrom<Item> for $name
   macro_rules! multiformat_vec {
     (
       $name:ident
@@ -2961,7 +3046,16 @@ pub mod messages {
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// Expands into two impls:
+  /// #### Arguments
+  /// 
+  /// - **$name**: Name of struct.
+  /// - **$w**: W-bit of message.
+  /// - **$stream**: Stream of message.
+  /// - **$function**: Function of message.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Expansion
   /// 
   /// - From<$name> for Message
   /// - TryFrom<Message> for $name
@@ -3004,7 +3098,16 @@ pub mod messages {
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// Expands into two impls:
+  /// #### Arguments
+  /// 
+  /// - **$name**: Name of struct.
+  /// - **$w**: W-bit of message.
+  /// - **$stream**: Stream of message.
+  /// - **$function**: Function of message.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Expansion
   /// 
   /// - From<$name> for Message
   /// - TryFrom<Message> for $name
@@ -3047,7 +3150,16 @@ pub mod messages {
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// Expands into two impls:
+  /// #### Arguments
+  /// 
+  /// - **$name**: Name of struct.
+  /// - **$w**: W-bit of message.
+  /// - **$stream**: Stream of message.
+  /// - **$function**: Function of message.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Expansion
   /// 
   /// - From<$name> for Message
   /// - TryFrom<Message> for $name
@@ -4323,15 +4435,20 @@ pub mod messages {
   /// - TransferContainer - A group of PDEs or PDEheaders bound together as a
   ///   single [Stream 13] Data Set for transfer.
   /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// ## TO BE DONE
+  /// 
+  /// - Fill out stream contents
+  /// 
   /// [Message]: crate::Message
   /// [Stream 13]: crate::messages::s13
   pub mod s19 {}
-  //TODO: Fill out stream's contents.
 
   /// # STREAM 20: RECIPE MANAGEMENT SYSTEM
   /// 
   /// The definition of this stream exists in a newer version of the standard
-  /// as compared to SEMI E5-0712.
+  /// as compared to SEMI E5-0813.
   /// 
   /// -------------------------------------------------------------------------
   /// 
@@ -4344,7 +4461,7 @@ pub mod messages {
   /// # STREAM 21: ITEM TRANSFER
   /// 
   /// The definition of this stream exists in a newer version of the standard
-  /// as compared to SEMI E5-0712.
+  /// as compared to SEMI E5-0813.
   /// 
   /// -------------------------------------------------------------------------
   /// 
