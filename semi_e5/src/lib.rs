@@ -1,6 +1,6 @@
 //! # SEMI EQUIPMENT COMMUNICATIONS STANDARD 2 (SECS-II) MESSAGE CONTENT
 //! **Based on:**
-//! - **[SEMI E5]-0712**
+//! - **[SEMI E5]-0813**
 //! 
 //! This third-party codebase will be updated to reflect more up-to-date SEMI
 //! standards if/when they can be acquired for this purpose.
@@ -17,10 +17,9 @@
 //! 
 //! ## TO BE DONE
 //! 
-//! - Implement "Localized" strings
-//! - Finish adding specific items
-//! - Finish adding messages to Stream 1
-//! - Add messages to Streams 2 through 21
+//! - Implement "Localized" strings.
+//! - Finish adding items.
+//! - Add messages to Streams 2 through 21.
 //! 
 //! ---------------------------------------------------------------------------
 //! 
@@ -1054,10 +1053,69 @@ pub mod items {
   /// representing a heterogenous list of elements.
   pub struct OptionList<T>(pub Option<T>);
 
+  /// ## ITEM -> OPTIONAL LIST
+  impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for OptionList<A> {
+    type Error = Error;
+  
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::List(list) => {
+          if list.is_empty() {
+            Ok(Self(None))
+          } else {
+            Ok(Self(Some(Item::List(list).try_into()?)))
+          }
+        },
+        _ => Err(Error::WrongFormat),
+      }
+    }
+  }
+
+  /// ## OPTIONAL LIST -> ITEM
+  impl<A: Into<Item>> From<OptionList<A>> for Item {
+    fn from(option_list: OptionList<A>) -> Self {
+      match option_list.0 {
+        Some(item) => item.into(),
+        None => Item::List(vec![]),
+      }
+    }
+  }
+
   /// ## VECTORIZED LIST
   /// 
   /// Represents a List with a variable number of elements of the same structure.
   pub struct VecList<T>(pub Vec<T>);
+
+  /// ## ITEM -> VECTORIZED LIST
+  impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for VecList<A> {
+    type Error = Error;
+  
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::List(list) => {
+          let mut vec = vec![];
+          for list_item in list {
+            vec.push(list_item.try_into()?)
+          }
+          Ok(Self(vec))
+        },
+        _ => Err(Error::WrongFormat),
+      }
+    }
+  }
+
+  /// ## VECTORIZED LIST -> ITEM
+  impl<A: Into<Item>> From<VecList<A>> for Item {
+    fn from(vec_list: VecList<A>) -> Self {
+      let mut vec = vec![];
+      for item in vec_list.0 {
+        vec.push(item.into())
+      }
+      Item::List(vec)
+    }
+  }
+
+  // EMPTY LIST IS IMPLEMENTED BY THE USE OF THE UNIT TYPE ()
 
   /// ## ITEM -> EMPTY LIST
   impl TryFrom<Item> for () {
@@ -1077,41 +1135,14 @@ pub mod items {
     }
   }
 
-  /// ## ITEM -> OPTIONAL LIST
-  impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for OptionList<A> {
-    type Error = Error;
-  
-    fn try_from(item: Item) -> Result<Self, Self::Error> {
-      match item {
-        Item::List(list) => {
-          if list.is_empty() {
-            Ok(Self(None))
-          } else {
-            Ok(Self(Some(Item::List(list).try_into()?)))
-          }
-        },
-        _ => Err(Error::WrongFormat),
-      }
+  /// ## EMPTY LIST -> ITEM
+  impl From<()> for Item {
+    fn from(_empty_list: ()) -> Self {
+      Item::List(vec![])
     }
   }
 
-  /// ## ITEM -> VECTORIZED LIST
-  impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for VecList<A> {
-    type Error = Error;
-  
-    fn try_from(item: Item) -> Result<Self, Self::Error> {
-      match item {
-        Item::List(list) => {
-          let mut vec = vec![];
-          for list_item in list {
-            vec.push(list_item.try_into()?)
-          }
-          Ok(Self(vec))
-        },
-        _ => Err(Error::WrongFormat),
-      }
-    }
-  }
+  // HETEROGENEOUS LISTS ARE IMPLEMENTED BY USE OF TUPLE TYPES (...)
 
   /// ## ITEM -> HETEROGENEOUS LIST (2 ELEMENTS)
   impl <
@@ -1134,6 +1165,19 @@ pub mod items {
         },
         _ => Err(Error::WrongFormat),
       }
+    }
+  }
+
+  /// ## HETEROGENEOUS LIST (2 ELEMENTS) -> ITEM
+  impl <
+    A: Into<Item>,
+    B: Into<Item>,
+  > From<(A, B)> for Item {
+    fn from(value: (A, B)) -> Self {
+      Item::List(vec![
+        value.0.into(),
+        value.1.into(),
+      ])
     }
   }
 
@@ -1163,50 +1207,6 @@ pub mod items {
     }
   }
 
-  // TODO: ITEM -> HETEROGENEOUS LIST, UP TO 15 ELEMENTS
-  // NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
-
-  /// ## EMPTY LIST -> ITEM
-  impl From<()> for Item {
-    fn from(_empty_list: ()) -> Self {
-      Item::List(vec![])
-    }
-  }
-  
-  /// ## OPTIONAL LIST -> ITEM
-  impl<A: Into<Item>> From<OptionList<A>> for Item {
-    fn from(option_list: OptionList<A>) -> Self {
-      match option_list.0 {
-        Some(item) => item.into(),
-        None => Item::List(vec![]),
-      }
-    }
-  }
-
-  /// ## VECTORIZED LIST -> ITEM
-  impl<A: Into<Item>> From<VecList<A>> for Item {
-    fn from(vec_list: VecList<A>) -> Self {
-      let mut vec = vec![];
-      for item in vec_list.0 {
-        vec.push(item.into())
-      }
-      Item::List(vec)
-    }
-  }
-
-  /// ## HETEROGENEOUS LIST (2 ELEMENTS) -> ITEM
-  impl <
-    A: Into<Item>,
-    B: Into<Item>,
-  > From<(A, B)> for Item {
-    fn from(value: (A, B)) -> Self {
-      Item::List(vec![
-        value.0.into(),
-        value.1.into(),
-      ])
-    }
-  }
-
   /// ## HETEROGENEOUS LIST (3 ELEMENTS) -> ITEM
   impl <
     A: Into<Item>,
@@ -1222,8 +1222,11 @@ pub mod items {
     }
   }
 
+  // TODO: ITEM -> HETEROGENEOUS LIST, UP TO 15 ELEMENTS
   // TODO: HETEROGENEOUS LIST -> ITEM, UP TO 15 ELEMENTS
   // NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
+
+  // IMPLEMENTATION MACROS
 
   /// ## DATA ITEM MACRO: SINGLE ACCEPTED FORMAT, VECTOR LENGTH 1
   macro_rules! singleformat {
@@ -1269,6 +1272,9 @@ pub mod items {
           } else {
             None
           }
+        }
+        pub fn read(&self) -> &Vec<$type> {
+          &self.0
         }
       })?
       impl From<$name> for Item {
@@ -1316,6 +1322,31 @@ pub mod items {
               } else {
                 Err(WrongFormat)
               }
+            },
+            _ => Err(WrongFormat),
+          }
+        }
+      }
+      impl From<Vec<$name>> for Item {
+        fn from(vec: Vec<$name>) -> Item {
+          let mut newvec = vec![];
+          for value in vec {
+            newvec.push(value.into());
+          }
+          Item::$format(newvec)
+        }
+      }
+      impl TryFrom<Item> for Vec<$name> {
+        type Error = Error;
+
+        fn try_from(item: Item) -> Result<Self, Self::Error> {
+          match item {
+            Item::$format(vec) => {
+              let mut newvec: Vec<$name> = vec![];
+              for value in vec {
+                newvec.push($name::try_from(value).map_err(|_| -> Self::Error {WrongFormat})?);
+              }
+              Ok(newvec)
             },
             _ => Err(WrongFormat),
           }
@@ -1371,6 +1402,50 @@ pub mod items {
     }
   }
 
+  /// ## DATA ITEM MACRO: MULTIPLE ACCEPTED FORMATS, VECTOR LENGTH 1, PLUS ASCII ANY LENGTH
+  macro_rules! multiformat_ascii {
+    (
+      $name:ident
+      ,$format:ident
+      $(,$formats:ident)*
+      $(,)?
+    ) => {
+      impl From<$name> for Item {
+        fn from(value: $name) -> Item {
+          match value {
+            $name::Ascii(vec) => Item::Ascii(vec),
+            $name::$format(val) => Item::$format(vec![val]),
+            $($name::$formats(val) => Item::$formats(vec![val]),)*
+          }
+        }
+      }
+      impl TryFrom<Item> for $name {
+        type Error = Error;
+
+        fn try_from(item: Item) -> Result<Self, Self::Error> {
+          match item {
+            Item::Ascii(vec) => Ok($name::Ascii(vec)),
+            Item::$format(vec) => {
+              if vec.len() == 1 {
+                Ok(Self::$format(vec[0]))
+              } else {
+                Err(WrongFormat)
+              }
+            },
+            $(Item::$formats(vec) => {
+              if vec.len() == 1 {
+                Ok(Self::$formats(vec[0]))
+              } else {
+                Err(WrongFormat)
+              }
+            },)*
+            _ => Err(WrongFormat),
+          }
+        }
+      }
+    }
+  }
+
   /// ## DATA ITEM MACRO: MULTIPLE ACCEPTED FORMATS, ANY VECTOR LENGTH
   macro_rules! multiformat_vec {
     (
@@ -1409,6 +1484,8 @@ pub mod items {
       }
     }
   }
+
+  // ITEMS
 
   /// ## ABS
   /// 
@@ -1606,11 +1683,64 @@ pub mod items {
   pub struct AlarmText(Vec<Char>);
   singleformat_vec!{AlarmText, Ascii, 0..=120, Char}
 
-  // TODO: ATTRDATA
-  // ASCII is present, implying vec usage, but not made clear if other types are also vec?
+  /// ## ATTRDATA
+  /// 
+  /// Specific attribute value for a specific object.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F20]
+  /// - S3F17, S3F35
+  /// - S13F13, S13F16
+  /// - S14F1, S14F2, S14F3, S14F4, S14F9, S14F10, S14F11, S14F12, S14F13,
+  ///   S14F14, S14F15, S14F16, S14F17, S14F18, S14F19
+  /// - S18F1, S18F3
+  /// 
+  /// [S1F20]: crate::messages::s1::AttributeData
+  pub enum AttributeValue {
+    List(Vec<Item>),
+    Bin(Vec<u8>),
+    Bool(Vec<bool>),
+    Ascii(Vec<Char>),
+    I1(Vec<i8>),
+    I2(Vec<i16>),
+    I4(Vec<i32>),
+    I8(Vec<i64>),
+    U1(Vec<u8>),
+    U2(Vec<u16>),
+    U4(Vec<u32>),
+    U8(Vec<u64>),
+    F4(Vec<f32>),
+    F8(Vec<f64>),
+  }
+  multiformat_vec!{AttributeValue, List, Bin, Bool, Ascii, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
 
-  // TODO: ATTRID
-  // How to combine ASCII vec and unsigned ints which are likely not vec?
+  /// ## ATTRID
+  /// 
+  /// Identifier for an attribute for a type of object.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F19]
+  /// - S3F17, S3F35
+  /// - S13F13, S13F16
+  /// - S14F1, S14F2, S14F3, S14F4, S14F8, S14F9, S14F10, S14F11, S14F12,
+  ///   S14F13, S14F14, S14F15, S14F16, S14F17, S14F18, S14F19
+  /// - S18F1, S18F3
+  /// 
+  /// [S1F19]: crate::messages::s1::GetAttribute
+  pub enum AttributeID {
+    Ascii(Vec<Char>),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat_ascii!{AttributeID, U1, U2, U4, U8}
 
   /// ## ATTRRELN
   /// 
@@ -1884,8 +2014,33 @@ pub mod items {
   pub struct CollectionEventEnableDisable(pub bool);
   singleformat!{CollectionEventEnableDisable, Bool}
 
-  // TODO: CEID
-  // How to combine ASCII vec and ints which are likely not vec?
+  /// ## CEID
+  /// 
+  /// Collection event ID.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F23], [S1F24]
+  /// - S2F35, S2F37
+  /// - S6F3, S6F8, S6F9, S6F11, S6F13, S6F15, S6F16, S6F17, S6F18
+  /// - S17F5, S17F9, S17F10, S17F11, S17F12
+  /// 
+  /// [S1F23]: crate::messages::s1::CollectionEventNamelistRequest
+  /// [S1F24]: crate::messages::s1::CollectionEventNamelist
+  pub enum CollectionEventID {
+    Ascii(Vec<Char>),
+    I1(i8),
+    I2(i16),
+    I4(i32),
+    I8(i64),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat_ascii!{CollectionEventID, I1, I2, I4, I8, U1, U2, U4, U8}
 
   /// ## CENAME
   /// 
@@ -1895,7 +2050,9 @@ pub mod items {
   /// 
   /// #### Used By
   /// 
-  /// - S1F24
+  /// - [S1F24]
+  /// 
+  /// [S1F24]: crate::messages::s1::CollectionEventNamelist
   #[derive(Clone, Debug)]
   pub struct CollectionEventName(pub Vec<Char>);
   singleformat_vec!{CollectionEventName, Ascii}
@@ -1971,6 +2128,8 @@ pub mod items {
   /// #### Used By
   /// 
   /// - S13F13, S13F15, S13F16
+  /// 
+  /// [TBLELT]: TableElement
   #[derive(Clone, Debug)]
   pub struct ColumnHeader(Vec<Char>);
   singleformat_vec!{ColumnHeader, Ascii, 1..=20, Char}
@@ -2244,36 +2403,43 @@ pub mod items {
   /// 
   /// #### Used By
   /// 
-  /// - S1F22
+  /// - [S1F22]
+  /// 
+  /// [S1F22]: crate::messages::s1::DataVariableNamelist
   #[derive(Clone, Debug)]
-  pub struct DataVaraibleValueName(pub Vec<Char>);
-  singleformat_vec!{DataVaraibleValueName, Ascii}
+  pub struct DataVariableValueName(pub Vec<Char>);
+  singleformat_vec!{DataVariableValueName, Ascii}
 
   /// ## ERRCODE
   /// 
   /// Code identifying an error.
+  /// 
+  /// TODO: Implement user defined errors.
   /// 
   /// -------------------------------------------------------------------------
   /// 
   /// #### Used By
   /// 
   /// - [S1F20]
-  /// - [S3F18], [S3F20], [S3F22], [S3F24], [S3F26], [S3F28], [S3F30], [S3F32],
-  ///   [S3F34], [S3F36]
-  /// - [S4F20], [S4F22], [S4F23], [S4F31], [S4F33]
-  /// - [S5F14], [S5F15], [S5F18]
-  /// - [S6F25], [S6F30]
-  /// - [S13F14], [S13F16]
-  /// - [S14F2], [S14F4], [S14F5], [S14F6], [S14F8], [S14F10], [S14F12],
-  ///   [S14F14], [S14F16], [S14F18], [S14F20], [S14F21], [S14F26], [S14F28]
-  /// - [S15F4], [S15F6], [S15F8], [S15F10], [S15F12], [S15F14], [S15F16],
-  ///   [S15F18], [S15F20], [S15F22], [S15F24], [S15F26], [S15F28], [S15F30],
-  ///   [S15F32], [S15F34], [S15F36], [S15F38], [S15F40], [S15F42], [S15F44],
-  ///   [S15F48], [S15F53]
-  /// - [S16F4], [S16F6], [S16F7], [S16F12], [S16F16], [S16F18], [S16F24],
-  ///   [S16F26], [S16F28]
-  /// - [S17F2], [S17F4], [S17F6], [S17F8], [S17F10], [S17F12], [S17F14]
-  #[repr(u32)]
+  /// - S3F18, S3F20, S3F22, S3F24, S3F26, S3F28, S3F30, S3F32,
+  ///   S3F34, S3F36
+  /// - S4F20, S4F22, S4F23, S4F31, S4F33
+  /// - S5F14, S5F15, S5F18
+  /// - S6F25, S6F30
+  /// - S13F14, S13F16
+  /// - S14F2, S14F4, S14F5, S14F6, S14F8, S14F10, S14F12,
+  ///   S14F14, S14F16, S14F18, S14F20, S14F21, S14F26, S14F28
+  /// - S15F4, S15F6, S15F8, S15F10, S15F12, S15F14, S15F16,
+  ///   S15F18, S15F20, S15F22, S15F24, S15F26, S15F28, S15F30,
+  ///   S15F32, S15F34, S15F36, S15F38, S15F40, S15F42, S15F44,
+  ///   S15F48, S15F53
+  /// - S16F4, S16F6, S16F7, S16F12, S16F16, S16F18, S16F24,
+  ///   S16F26, S16F28
+  /// - S17F2, S17F4, S17F6, S17F8, S17F10, S17F12, S17F14
+  /// 
+  /// [S1F20]: crate::messages::s1::AttributeData
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u64)]
   pub enum ErrorCode {
     NoError                         = 0,
     UnknownObjectInObjectSpecifier  = 1,
@@ -2349,6 +2515,55 @@ pub mod items {
     //32793-65335: Reserved
     //65536+: User Defined
   }
+  impl From<ErrorCode> for Item {
+    fn from(value: ErrorCode) -> Self {
+      let number: u64 = value.into();
+      if number < 256 {
+        Item::U1(vec![number as u8])
+      } else if number < 65536 {
+        Item::U2(vec![number as u16])
+      } else {
+        Item::U8(vec![number])
+      }
+    }
+  }
+  impl TryFrom<Item> for ErrorCode {
+    type Error = Error;
+  
+    fn try_from(value: Item) -> Result<Self, Self::Error> {
+      match value {
+        Item::U1(vec) => {
+          if vec.len() == 1 {
+            ErrorCode::try_from(vec[0] as u64).map_err(|_| -> Self::Error {WrongFormat})
+          } else {
+            Err(WrongFormat)
+          }
+        },
+        Item::U2(vec) => {
+          if vec.len() == 1 {
+            ErrorCode::try_from(vec[0] as u64).map_err(|_| -> Self::Error {WrongFormat})
+          } else {
+            Err(WrongFormat)
+          }
+        },
+        Item::U4(vec) => {
+          if vec.len() == 1 {
+            ErrorCode::try_from(vec[0] as u64).map_err(|_| -> Self::Error {WrongFormat})
+          } else {
+            Err(WrongFormat)
+          }
+        },
+        Item::U8(vec) => {
+          if vec.len() == 1 {
+            ErrorCode::try_from(vec[0]).map_err(|_| -> Self::Error {WrongFormat})
+          } else {
+            Err(WrongFormat)
+          }
+        },
+        _ => Err(WrongFormat),
+      }
+    }
+  }
 
   /// ## ERRTEXT
   /// 
@@ -2360,7 +2575,7 @@ pub mod items {
   /// 
   /// #### Used By
   /// 
-  /// - S1F20
+  /// - [S1F20]
   /// - S3F18, S3F20, S3F22, S3F24, S3F26, S3F28, S3F30, S3F32, S3F34, S3F36
   /// - S4F20, S4F22, S4F23, S4F31, S4F33
   /// - S5F14, S5F15, S5F18
@@ -2373,6 +2588,9 @@ pub mod items {
   ///   S15F40, S15F42, S15F44, S15F48, S15F53
   /// - S16F4, S16F6, S16F7, S16F12, S16F16, S16F18, S16F24, S16F26, S16F28
   /// - S17F4, S17F8, S17F18
+  /// 
+  /// [ERRCODE]: ErrorCode
+  /// [S1F20]:   crate::messages::s1::AttributeData
   #[derive(Clone, Debug)]
   pub struct ErrorText(Vec<Char>);
   singleformat_vec!{ErrorText, Ascii, 0..=120, Char}
@@ -2385,12 +2603,14 @@ pub mod items {
   /// 
   /// #### Used By
   /// 
-  /// - [S1F2], [S1F13], [S1F14]
+  /// - [S1F2], [S1F13H], [S1F13E], [S1F14H], [S1F14E]
   /// - S7F22, S7F23, S7F26, S7F31, S7F39, S7F43
   /// 
-  /// [S1F2]:  crate::messages::s1::EquipmentOnLineData
-  /// [S1F13]: crate::messages::s1::HostCR
-  /// [S1F14]: crate::messages::s1::EquipmentCRA
+  /// [S1F2]:   crate::messages::s1::OnLineDataEquipment
+  /// [S1F13H]: crate::messages::s1::HostCR
+  /// [S1F13E]: crate::messages::s1::EquipmentCR
+  /// [S1F14H]: crate::messages::s1::HostCRA
+  /// [S1F14E]: crate::messages::s1::EquipmentCRA
   #[derive(Clone, Debug)]
   pub struct ModelName(Vec<Char>);
   singleformat_vec!{ModelName, Ascii, 0..=20, Char}
@@ -2418,6 +2638,50 @@ pub mod items {
     U1(Vec<u8>),
   }
   multiformat_vec!{NullBinCode, Ascii, U1}
+
+  /// ## OBJID
+  /// 
+  /// Identifier for an object.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F19]
+  /// - S14F1, S14F2, S14F3, S14F4
+  /// 
+  /// [S1F19]: crate::messages::s1::GetAttribute
+  pub enum ObjectID {
+    Ascii(Vec<Char>),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat_ascii!{ObjectID, U1, U2, U4, U8}
+
+  /// ## OBJTYPE
+  /// 
+  /// An identifier for a class of objects.
+  /// 
+  /// All objects of the same type must have the same set of attributes.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F19]
+  /// - S14F1, S14F3, S14F6, S14F7, S14F8, S14F9, S14F25, S14F26, S14F27
+  /// 
+  /// [S1F19]: crate::messages::s1::GetAttribute
+  pub enum ObjectType {
+    Ascii(Vec<Char>),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat_ascii!{ObjectType, U1, U2, U4, U8}
 
   /// ## OFLACK
   /// 
@@ -2466,6 +2730,9 @@ pub mod items {
   /// #### Used By
   /// 
   /// - [S1F5], [S1F7]
+  /// 
+  /// [S1F5]: crate::messages::s1::FormattedStatusRequest
+  /// [S1F7]: crate::messages::s1::FixedFormRequest
   pub struct StatusFormCode(pub u8);
   singleformat!{StatusFormCode, Bin}
 
@@ -2477,11 +2744,14 @@ pub mod items {
   /// 
   /// #### Used By
   /// 
-  /// - [S1F2], [S1F13], [S1F14]
-  /// - [S7F22], [S7F23], [S7F26], [S7F31], [S7F39], [S7F43]
+  /// - [S1F2E], [S1F13H], [S1F13E], [S1F14H], [S1F14E]
+  /// - S7F22, S7F23, S7F26, S7F31, S7F39, S7F43
   /// 
-  /// [S1F2]:  crate::messages::s1::EquipmentOnLineData
-  /// [S1F14]: crate::messages::s1::EquipmentCRA
+  /// [S1F2E]:  crate::messages::s1::OnLineDataEquipment
+  /// [S1F13H]: crate::messages::s1::HostCR
+  /// [S1F13E]: crate::messages::s1::EquipmentCR
+  /// [S1F14H]: crate::messages::s1::HostCRA
+  /// [S1F14E]: crate::messages::s1::EquipmentCRA
   #[derive(Clone, Debug)]
   pub struct SoftwareRevision(Vec<Char>);
   singleformat_vec!{SoftwareRevision, Ascii, 0..=20, Char}
@@ -2495,7 +2765,7 @@ pub mod items {
   /// #### Used By
   /// 
   /// - [S1F4]
-  /// - [S6F1]
+  /// - S6F1
   /// 
   /// [S1F4]: crate::messages::s1::SelectedEquipmentStatusData
   pub enum StatusVariableValue {
@@ -2528,7 +2798,7 @@ pub mod items {
   /// #### Used By
   /// 
   /// - [S1F3], [S1F11], [S1F12]
-  /// - [S2F23]
+  /// - S2F23
   /// 
   /// [S1F3]: crate::messages::s1::SelectedEquipmentStatusRequest
   /// [S1F11]: crate::messages::s1::StatusVariableNamelistRequest
@@ -2559,6 +2829,36 @@ pub mod items {
   pub struct StatusVariableName(pub Vec<Char>);
   singleformat_vec!{StatusVariableName, Ascii}
 
+  /// ## TBLELT
+  /// 
+  /// Table element.
+  /// 
+  /// The first table element in a row is used to identify the row.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S13F13, S13F15, S13F16
+  pub enum TableElement {
+    List(Vec<Item>),
+    Bin(Vec<u8>),
+    Bool(Vec<bool>),
+    Ascii(Vec<Char>),
+    Jis8(String),
+    I1(Vec<i8>),
+    I2(Vec<i16>),
+    I4(Vec<i32>),
+    I8(Vec<i64>),
+    U1(Vec<u8>),
+    U2(Vec<u16>),
+    U4(Vec<u32>),
+    U8(Vec<u64>),
+    F4(Vec<f32>),
+    F8(Vec<f64>),
+  }
+  multiformat_vec!{TableElement, List, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
+
   /// ## TSIP
   /// 
   /// Transfer status of input port, 1 byte.
@@ -2568,6 +2868,8 @@ pub mod items {
   /// #### Used By
   /// 
   /// - [S1F10]
+  /// 
+  /// [S1F10]: crate::messages::s1::MaterialTransferStatusData
   #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
   #[repr(u8)]
   pub enum TransferStatusInputPort {
@@ -2587,6 +2889,8 @@ pub mod items {
   /// #### Used By
   /// 
   /// - [S1F10]
+  /// 
+  /// [S1F10]: crate::messages::s1::MaterialTransferStatusData
   #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
   #[repr(u8)]
   pub enum TransferStatusOutputPort {
@@ -2602,17 +2906,50 @@ pub mod items {
   /// 
   /// Units identifier.
   /// 
+  /// TODO: Implement this variable using the units module rather than a raw Vec.
+  /// 
   /// -------------------------------------------------------------------------
   /// 
   /// #### Used By
   /// 
   /// - [S1F12], [S1F22]
-  /// - [S2F30], [S2F38]
-  /// - [S7F22]
+  /// - S2F30, S2F38
+  /// - S7F22
   /// 
-  /// TODO: Implement this variable using the units module rather than a raw Vec.
+  /// [S1F12]: crate::messages::s1::StatusVariableNamelistReply
+  /// [S1F22]: crate::messages::s1::DataVariableNamelist
   pub struct Units(pub Vec<Char>);
   singleformat_vec!{Units, Ascii}
+
+  /// ## VID
+  /// 
+  /// Variable ID
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - [S1F21], [S1F22], [S1F24]
+  /// - S2F33, S2F45, S2F46, S2F47, S2F48
+  /// - S6F13, S6F18, S6F22
+  /// - S16F9
+  /// - S17F1
+  /// 
+  /// [S1F21]: crate::messages::s1::DataVariableNamelistRequest
+  /// [S1F22]: crate::messages::s1::DataVariableNamelist
+  /// [S1F24]: crate::messages::s1::CollectionEventNamelist
+  pub enum VariableID {
+    Ascii(Vec<Char>),
+    I1(i8),
+    I2(i16),
+    I4(i32),
+    I8(i64),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat_ascii!{VariableID, I1, I2, I4, I8, U1, U2, U4, U8}
 }
 
 /// # MESSAGES
@@ -2756,17 +3093,31 @@ pub mod messages {
   /// equipment, including its current mode, depletion of various consumable
   /// items, and the status of transfer operations.
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// ## TO BE DONE
-  /// 
-  /// - Finish filling out stream contents
-  /// 
   /// [Message]: crate::Message
   pub mod s1 {
     use crate::*;
     use crate::Error::*;
     use crate::items::*;
+
+    /// ## S1F0
+    /// 
+    /// **Abort Transaction**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Used in lieu of an expected reply to abort a transaction.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Header only.
+    pub struct Abort;
+    message_headeronly!{Abort, false, 1, 0}
 
     /// ## S1F1
     /// 
@@ -2806,8 +3157,8 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - 0
-    pub struct HostOnLineData(pub ());
-    message_data!{HostOnLineData, false, 1, 2}
+    pub struct OnLineDataHost(pub ());
+    message_data!{OnLineDataHost, false, 1, 2}
 
     /// ## S1F2
     /// 
@@ -2831,8 +3182,8 @@ pub mod messages {
     /// 
     /// [MDLN]:    ModelName
     /// [SOFTREV]: SoftwareRevision
-    pub struct EquipmentOnLineData(pub (ModelName, SoftwareRevision));
-    message_data!{EquipmentOnLineData, false, 1, 2}
+    pub struct OnLineDataEquipment(pub (ModelName, SoftwareRevision));
+    message_data!{OnLineDataEquipment, false, 1, 2}
 
     /// ## S1F3
     /// 
@@ -2869,7 +3220,7 @@ pub mod messages {
     /// 
     /// -----------------------------------------------------------------------
     /// 
-    /// The equipment reports the value of each SVID requested in the order
+    /// The equipment reports the value of each [SVID] requested in the order
     /// requested.
     /// 
     /// The host must remember the names of the values it requested.
@@ -3030,8 +3381,8 @@ pub mod messages {
     /// 
     /// [TSIP]: TransferStatusInputPort
     /// [TSOP]: TransferStatusOutputPort
-    pub struct MaterialTransferStatusData;
-    //TODO: Implement this message.
+    pub struct MaterialTransferStatusData(pub OptionList<(Vec<TransferStatusInputPort>, Vec<TransferStatusOutputPort>)>);
+    message_data!{MaterialTransferStatusData, false, 1, 10}
 
     /// ## S1F11
     /// 
@@ -3049,10 +3400,11 @@ pub mod messages {
     /// 
     /// #### Structure
     /// 
-    /// - List - n
+    /// - List - N
     ///   - [SVID]
     /// 
-    /// A zero-length list means to report all SVIDs.
+    /// N is the number of status variables requested.
+    /// Zero-length N is a request to report all [SVID]s.
     /// 
     /// [SVID]: StatusVariableID
     pub struct StatusVariableNamelistRequest(pub VecList<StatusVariableID>);
@@ -3074,14 +3426,19 @@ pub mod messages {
     /// 
     /// #### Structure
     /// 
-    /// - List - n
+    /// - List - N
     ///   - List - 3
     ///     1. [SVID]
     ///     2. [SVNAME]
     ///     3. [UNITS]
     /// 
-    /// Zero length items for both SVNAME and UNITS indicates that the SVID
-    /// does not exist.
+    /// N is the number of status variables requested.
+    /// Zero length items for both [SVNAME] and [UNITS] indicates that the
+    /// [SVID] does not exist.
+    /// 
+    /// [SVID]:   StatusVariableID
+    /// [SVNAME]: StatusVariableName
+    /// [UNITS]:  Units
     pub struct StatusVariableNamelistReply(pub VecList<(StatusVariableID, StatusVariableName, Units)>);
     message_data!{StatusVariableNamelistReply, false, 1, 12}
 
@@ -3119,6 +3476,69 @@ pub mod messages {
     pub struct HostCR(pub ());
     message_data!{HostCR, true, 1, 13}
 
+    /// ## S1F13
+    /// 
+    /// **Establish Communications Request (CR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// The purpose of this message is to provide a formal means of
+    /// initializing communications at a logical application level both on
+    /// power-up and following a break in communications.
+    /// 
+    /// It should follow any period where host and equipment SECS applications
+    /// are unable to communicate.
+    /// 
+    /// An attempt to send an Establish Communications Request ([S1F13])
+    /// should be repeated at programmable intervals until an Establish
+    /// Communications Acknowledge ([S1F14]) is received within the
+    /// transaction timeout period with an acknowledgement code accepting the
+    /// establishment.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - 2
+    ///   - [MDLN]
+    ///   - [SOFTREV]
+    /// 
+    /// [S1F13]:   EquipmentCR
+    /// [S1F14]:   HostCRA
+    /// [MDLN]:    ModelName
+    /// [SOFTREV]: SoftwareRevision
+    pub struct EquipmentCR(pub (ModelName, SoftwareRevision));
+    message_data!{EquipmentCR, true, 1, 13}
+
+    /// ## S1F14
+    /// 
+    /// **Establish Communications Request Acknowledge (CRA)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Accept or deny Establish Communications Request ([S1F13]).
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - 2
+    ///   1. [COMMACK]
+    ///   2. List - 0
+    /// 
+    /// [S1F13]:   EquipmentCR
+    /// [COMMACK]: CommAck
+    pub struct HostCRA(pub (CommAck, ()));
+    message_data!{HostCRA, false, 1, 14}
+
     /// ## S1F14
     /// 
     /// **Establish Communications Request Acknowledge (CRA)**
@@ -3149,7 +3569,7 @@ pub mod messages {
     /// [MDLN]:    ModelName
     /// [SOFTREV]: SoftwareRevision
     pub struct EquipmentCRA(pub (CommAck, (ModelName, SoftwareRevision)));
-    message_data!{EquipmentCRA, true, 1, 14}
+    message_data!{EquipmentCRA, false, 1, 14}
 
     /// ## S1F15
     /// 
@@ -3204,8 +3624,7 @@ pub mod messages {
     /// 
     /// -----------------------------------------------------------------------
     /// 
-    /// The host requirests that the equipment transition to the OM-LINE
-    /// state.
+    /// The host requests that the equipment transition to the ON-LINE state.
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3236,6 +3655,217 @@ pub mod messages {
     /// [ONLACK]: OnLineAcknowledge
     pub struct OnLineAck(pub OnLineAcknowledge);
     message_data!{OnLineAck, false, 1, 16}
+
+    /// ## S1F19
+    /// 
+    /// **Get Attribute (GA)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Request for attribute data relating to the specified object or entity
+    /// within the equipment.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - 3
+    ///   1. [OBJTYPE]
+    ///   2. List - M
+    ///      - [OBJID]
+    ///   3. List - N
+    ///      - [ATTRID]
+    /// 
+    /// M is the number of objects for which attributes are requested.
+    /// Zero-length M is a request for all objects of the specified type.
+    /// 
+    /// N is the number of attributes requested for each object.
+    /// Zero-length N is a request for all attributes.
+    /// 
+    /// [OBJTYPE]: ObjectType
+    /// [OBJID]:   ObjectID
+    /// [ATTRID]:  AttributeID
+    pub struct GetAttribute(pub (ObjectType, VecList<ObjectID>, VecList<AttributeID>));
+    message_data!{GetAttribute, true, 1, 19}
+
+    /// ## S1F20
+    /// 
+    /// **Attribute Data (AD)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Requested object attributes.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - 2
+    ///   1. List - M
+    ///      - List - N
+    ///         - [ATTRDATA]
+    ///   2. List - P
+    ///      - List - 2
+    ///         1. [ERRCODE]
+    ///         2. [ERRTEXT]
+    /// 
+    /// M is the number of objects for which attributes are being returned.
+    /// Zero-length M indicates that the specified [OBJTYPE] is unknown.
+    /// 
+    /// N is the number of attributes requested for each object.
+    /// Zero-length N indicates that the corresponding object was not found.
+    /// 
+    /// Zero-length [ATTRDATA] item indicates that the specified [ATTRID] is
+    /// unknown.
+    /// 
+    /// P is the number of errors reported.
+    /// Zero-length P indicates no errors were found.
+    /// 
+    /// [ATTRDATA]: AttributeValue
+    /// [ERRCODE]:  ErrorCode
+    /// [ERRTEXT]:  ErrorText
+    /// [OBJTYPE]:  ObjectType
+    /// [ATTRID]:   AttributeID
+    pub struct AttributeData(pub (VecList<VecList<AttributeValue>>, VecList<(ErrorCode, ErrorText)>));
+    message_data!{AttributeData, false, 1, 20}
+
+    /// ## S1F21
+    /// 
+    /// **Data Variable Namelist Request (DVNR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Request basic information about data variables.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - N
+    ///   - [VID]
+    /// 
+    /// N is the number of requested data variables.
+    /// 
+    /// [VID]s are limited to those of 'DVVAL' class variables only.
+    /// 
+    /// [VID]: VariableID
+    pub struct DataVariableNamelistRequest(pub VecList<VariableID>);
+    message_data!{DataVariableNamelistRequest, true, 1, 21}
+
+    /// ## S1F22
+    /// 
+    /// **Data Variable Namelist (DVN)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Report information of the [VID]s requested by [S1F21].
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - N
+    ///    - List - 3
+    ///       1. [VID]
+    ///       2. [DVVALNAME]
+    ///       3. [UNITS]
+    /// 
+    /// N is the number of requested data variables.
+    /// 
+    /// [VID]s are limited to those of 'DVVAL' class variables only.
+    /// 
+    /// Zero-length ASCII items for [DVVALNAME] and [UNITS] indicates that the
+    /// [VID] does not exist or is not the identifier of a 'DVVAL' class
+    /// variable.
+    /// 
+    /// [S1F21]:     DataVariableNamelistRequest
+    /// [VID]:       VariableID
+    /// [DVVALNAME]: DataVariableValueName
+    /// [UNITS]:     Units
+    pub struct DataVariableNamelist(pub VecList<(VariableID, DataVariableValueName, Units)>);
+    message_data!{DataVariableNamelist, false, 1, 22}
+
+    /// ## S1F23
+    /// 
+    /// **Collection Event Namelist Request (CENR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Retrieve information about what collection event IDs are available and
+    /// which data values are valid for each collection event.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// - List - N
+    ///    - [CEID]
+    /// 
+    /// N is the number of requested [CEID]s.
+    /// Zero-length N is a request for to send information for all [CEID]s.
+    /// 
+    /// [CEID]: CollectionEventID
+    pub struct CollectionEventNamelistRequest(pub VecList<CollectionEventID>);
+    message_data!{CollectionEventNamelistRequest, true, 1, 23}
+
+    /// ## S1F24
+    /// 
+    /// **Collection Event Namelist (CEN)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Information of the collection events and associated [VID]s of the
+    /// [CEID]s. A listed [VID] can be conditionally or unconditionally
+    /// associated with the [CEID]; it is the responsibility of the equipment
+    /// supplier to document whether conditional [VID]s are reported.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - N
+    ///    - List - 3
+    ///       1. [CEID]
+    ///       2. [CENAME]
+    ///       3. List - A
+    ///          - [VID]
+    /// 
+    /// N is the number of requested [CEID]s.
+    /// 
+    /// A is the number of associated [VID]s.
+    /// 
+    /// [VID]s are limited to those of 'DVVAL' class variables only.
+    /// 
+    /// When both [CENAME] and the list of associated [VID]s are zero-length,
+    /// this indicates that the [CEID] does not exist.
+    /// 
+    /// [CEID]:   CollectionEventID
+    /// [CENAME]: CollectionEventName
+    /// [VID]:    VariableID
+    pub struct CollectionEventNamelist(pub VecList<(CollectionEventID, CollectionEventName, VecList<VariableID>)>);
+    message_data!{CollectionEventNamelist, false, 1, 24}
   }
 
   /// # STREAM 2: EQUIPMENT CONTROL AND DIAGNOSTICS
@@ -3316,7 +3946,7 @@ pub mod messages {
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// [Message]s [S5F1] through [S5F8] provide basic alarm messages, which may
+  /// [Message]s S5F1 through S5F8 provide basic alarm messages, which may
   /// be divided into the following categories:
   /// 
   /// - Personal Safety - Condition may be dangerous to people.
@@ -3340,7 +3970,7 @@ pub mod messages {
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// [Message]s [S5F9] through [S5F15] provide extended capabilities for
+  /// [Message]s S5F9 through S5F15 provide extended capabilities for
   /// exception handling.
   /// 
   /// -------------------------------------------------------------------------
@@ -3487,7 +4117,7 @@ pub mod messages {
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// [S12F1] through [S12F20] address the variations required by semiconductor
+  /// S12F1 through S12F20 address the variations required by semiconductor
   /// equipment manufactureers in transmitting wafer maps to and from the
   /// process equipment.
   /// 

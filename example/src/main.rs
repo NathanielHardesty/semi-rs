@@ -2,7 +2,7 @@
 #![feature(ascii_char_variants)]
 
 use std::{ascii::Char::*, sync::{mpsc::Receiver, Arc}, thread::{self, JoinHandle}, time::Duration};
-use semi_e5::{items::StatusVariableValue, messages::s1::SelectedEquipmentStatusData, Item, Message};
+use semi_e5::{Item, Message, items::*, messages::*};
 use semi_e37::{ConnectionMode, ConnectionStateTransition, HsmsClient, HsmsMessageID, ParameterSettings};
 
 fn main() {
@@ -14,7 +14,10 @@ fn main() {
 }
 
 fn test_data() {
-  println!("{:?}", Item::try_from(vec![1, 1, 177, 4, 0, 0, 7, 237]))
+  println!("{:?}", Item::try_from(vec![1, 1, 177, 4, 0, 0, 7, 237]));
+  let a: semi_e5::items::ErrorText = semi_e5::items::ErrorText::new(vec![CapitalA]).unwrap();
+  println!("{:?}", a);
+  println!("{:?}", a.read()[0])
 }
 
 fn test_equipment() {
@@ -29,80 +32,103 @@ fn test_equipment() {
       println!("EQUIPMENT DATA RX {:?}", message);
       match (message.w, message.stream, message.function) {
         (true, 1, 3) => {
-          match semi_e5::messages::s1::SelectedEquipmentStatusRequest::try_from(message) {
+          match s1::SelectedEquipmentStatusRequest::try_from(message) {
             Ok(s1f3) => {
               let mut vec = vec![];
-              for _status_variable in s1f3.0.0 {
+              for _svid in s1f3.0.0 {
                 vec.push(StatusVariableValue::List(vec![Item::u4(10)]));
               }
               rx_client.data(
                 id,
-                SelectedEquipmentStatusData(semi_e5::items::VecList(vec)).into()
+                s1::SelectedEquipmentStatusData(semi_e5::items::VecList(vec)).into()
               ).join().unwrap().unwrap();
             },
-            Err(_) => todo!(),
+            Err(_) => {
+              rx_client.data(id, s1::Abort.into()).join().unwrap().unwrap();
+            },
           }
         },
         (true, 1, 11) => {
-          rx_client.data(
-            id,
-            Message {
-              stream: 1,
-              function: 12,
-              w: false,
-              text: Some(Item::List(vec![])),
-            }
-          ).join().unwrap().unwrap();
+          match s1::StatusVariableNamelistRequest::try_from(message) {
+            Ok(s1f11) => {
+              let mut vec = vec![];
+              for svid in s1f11.0.0 {
+                vec.push((svid, StatusVariableName(vec![]), Units(vec![])));
+              }
+              rx_client.data(
+                id,
+                s1::StatusVariableNamelistReply(semi_e5::items::VecList(vec)).into()
+              ).join().unwrap().unwrap();
+            },
+            Err(_) => {
+              rx_client.data(id, s1::Abort.into()).join().unwrap().unwrap();
+            },
+          }
         },
         (true, 1, 13) => {
-          rx_client.data(
-            id,
-            Message {
-              w: false,
-              stream: 1,
-              function: 14,
-              text: Some(Item::List(vec![
-                Item::Bin(vec![0]),
-                Item::List(vec![
-                  Item::Ascii(vec![CapitalT, SmallE, SmallS, SmallT]),
-                  Item::Ascii(vec![Digit0, Digit1, Digit0]),
-                ]),
-              ])),
+          match s1::HostCR::try_from(message) {
+            Ok(_s1f13) => {
+              rx_client.data(
+                id,
+                s1::EquipmentCRA((
+                  CommAck::Accepted, (
+                    ModelName::new(vec![CapitalT, SmallE, SmallS, SmallT]).unwrap(),
+                    SoftwareRevision::new(vec![Digit0, Digit1, Digit0]).unwrap(),
+                  )
+                )).into()
+              ).join().unwrap().unwrap();
+            },
+            Err(_) => {
+              rx_client.data(id, s1::Abort.into()).join().unwrap().unwrap();
             }
-          ).join().unwrap().unwrap();
+          }
         },
         (true, 1, 17) => {
-          rx_client.data(
-            id,
-            Message {
-              w: false,
-              stream: 1,
-              function: 18,
-              text: Some(Item::Bin(vec![0])),
+          match s1::RequestOnLine::try_from(message) {
+            Ok(_s1f17) => {
+              rx_client.data(
+                id,
+                s1::OnLineAck(OnLineAcknowledge::Accepted).into()
+              ).join().unwrap().unwrap();
+            },
+            Err(_) => {
+              rx_client.data(id, s1::Abort.into()).join().unwrap().unwrap();
             }
-          ).join().unwrap().unwrap();
+          }
         },
         (true, 1, 21) => {
-          rx_client.data(
-            id,
-            Message {
-              w: false,
-              stream: 1,
-              function: 22,
-              text: Some(Item::List(vec![])),
-            }
-          ).join().unwrap().unwrap();
+          match s1::DataVariableNamelistRequest::try_from(message) {
+            Ok(s1f21) => {
+              let mut vec = vec![];
+              for vid in s1f21.0.0 {
+                vec.push((vid, DataVariableValueName(vec![]), Units(vec![])));
+              }
+              rx_client.data(
+                id,
+                s1::DataVariableNamelist(semi_e5::items::VecList(vec)).into()
+              ).join().unwrap().unwrap();
+            },
+            Err(_) => {
+              rx_client.data(id, s1::Abort.into()).join().unwrap().unwrap();
+            },
+          }
         },
         (true, 1, 23) => {
-          rx_client.data(
-            id,
-            Message {
-              w: false,
-              stream: 1,
-              function: 24,
-              text: Some(Item::List(vec![])),
-            }
-          ).join().unwrap().unwrap();
+          match s1::CollectionEventNamelistRequest::try_from(message) {
+            Ok(s1f11) => {
+              let mut vec = vec![];
+              for ceid in s1f11.0.0 {
+                vec.push((ceid, CollectionEventName(vec![]), VecList(vec![])));
+              }
+              rx_client.data(
+                id,
+                s1::CollectionEventNamelist(semi_e5::items::VecList(vec)).into()
+              ).join().unwrap().unwrap();
+            },
+            Err(_) => {
+              rx_client.data(id, s1::Abort.into()).join().unwrap().unwrap();
+            },
+          }
         },
         (true, 2, 13) => {
           rx_client.data(
