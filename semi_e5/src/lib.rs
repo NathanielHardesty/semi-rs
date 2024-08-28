@@ -3118,7 +3118,7 @@ pub mod items {
   /// 
   /// Units identifier.
   /// 
-  /// TODO: Implement this variable using the units module rather than a raw Vec.
+  /// TODO: Implement this variable using the units module.
   /// 
   /// -------------------------------------------------------------------------
   /// 
@@ -3416,8 +3416,8 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - 2
-    ///   1. [MDLN]
-    ///   2. [SOFTREV]
+    ///    1. [MDLN]
+    ///    2. [SOFTREV]
     /// 
     /// [MDLN]:    ModelName
     /// [SOFTREV]: SoftwareRevision
@@ -3441,7 +3441,7 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - n
-    ///   - [SVID]
+    ///    - [SVID]
     /// 
     /// A zero-length list means to report all SVIDs.
     /// 
@@ -3469,7 +3469,7 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - n
-    ///   - [SV]
+    ///    - [SV]
     /// 
     /// A zero-length item for a given [SV] means that the [SVID] does not
     /// exist.
@@ -3612,8 +3612,8 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - 2
-    ///   1. <[TSIP]...>
-    ///   2. <[TSOP]...>
+    ///    1. <[TSIP]...>
+    ///    2. <[TSOP]...>
     /// 
     /// A zero length item means there are no such ports.
     /// A zero length list means there are no ports.
@@ -3640,7 +3640,7 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - N
-    ///   - [SVID]
+    ///    - [SVID]
     /// 
     /// N is the number of status variables requested.
     /// Zero-length N is a request to report all [SVID]s.
@@ -3666,10 +3666,10 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - N
-    ///   - List - 3
-    ///     1. [SVID]
-    ///     2. [SVNAME]
-    ///     3. [UNITS]
+    ///    - List - 3
+    ///       1. [SVID]
+    ///       2. [SVNAME]
+    ///       3. [UNITS]
     /// 
     /// N is the number of status variables requested.
     /// Zero length items for both [SVNAME] and [UNITS] indicates that the
@@ -3743,8 +3743,8 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - 2
-    ///   - [MDLN]
-    ///   - [SOFTREV]
+    ///    - [MDLN]
+    ///    - [SOFTREV]
     /// 
     /// [S1F13]:   EquipmentCR
     /// [S1F14]:   HostCRA
@@ -3770,8 +3770,8 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - 2
-    ///   1. [COMMACK]
-    ///   2. List - 0
+    ///    1. [COMMACK]
+    ///    2. List - 0
     /// 
     /// [S1F13]:   EquipmentCR
     /// [COMMACK]: CommAck
@@ -3798,10 +3798,10 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - 2
-    ///   1. [COMMACK]
-    ///   2. List - 2
-    ///      1. [MDLN]
-    ///      2. [SOFTREV]
+    ///    1. [COMMACK]
+    ///    2. List - 2
+    ///       1. [MDLN]
+    ///       2. [SOFTREV]
     /// 
     /// [S1F13]:   HostCR
     /// [COMMACK]: CommAck
@@ -3913,11 +3913,11 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - 3
-    ///   1. [OBJTYPE]
-    ///   2. List - M
-    ///      - [OBJID]
-    ///   3. List - N
-    ///      - [ATTRID]
+    ///    1. [OBJTYPE]
+    ///    2. List - M
+    ///       - [OBJID]
+    ///    3. List - N
+    ///       - [ATTRID]
     /// 
     /// M is the number of objects for which attributes are requested.
     /// Zero-length M is a request for all objects of the specified type.
@@ -3948,13 +3948,13 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - 2
-    ///   1. List - M
-    ///      - List - N
-    ///         - [ATTRDATA]
-    ///   2. List - P
-    ///      - List - 2
-    ///         1. [ERRCODE]
-    ///         2. [ERRTEXT]
+    ///    1. List - M
+    ///       - List - N
+    ///          - [ATTRDATA]
+    ///    2. List - P
+    ///       - List - 2
+    ///          1. [ERRCODE]
+    ///          2. [ERRTEXT]
     /// 
     /// M is the number of objects for which attributes are being returned.
     /// Zero-length M indicates that the specified [OBJTYPE] is unknown.
@@ -3993,7 +3993,7 @@ pub mod messages {
     /// #### Structure
     /// 
     /// - List - N
-    ///   - [VID]
+    ///    - [VID]
     /// 
     /// N is the number of requested data variables.
     /// 
@@ -4131,9 +4131,9 @@ pub mod messages {
   /// 
   /// - Fill out stream contents
   /// 
-  /// [Message]: crate::Message
-  /// [Stream 4]: crate::messages::s4
-  /// [Stream 8]: crate::messages::s8
+  /// [Message]:   crate::Message
+  /// [Stream 4]:  crate::messages::s4
+  /// [Stream 8]:  crate::messages::s8
   /// [Stream 10]: crate::messages::s10
   /// [Stream 13]: crate::messages::s13
   /// [Stream 17]: crate::messages::s17
