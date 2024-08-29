@@ -2364,13 +2364,13 @@ pub mod items {
   /// - S2F8
   #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
   #[repr(u8)]
-  pub enum EquipmentAcknowledge {
+  pub enum ServiceAcknowledgeCode {
     Ok = 0,
     Busy = 1,
     InvalidSPID = 2,
     InvalidData = 3,
   }
-  singleformat_enum!{EquipmentAcknowledge, Bin}
+  singleformat_enum!{ServiceAcknowledgeCode, Bin}
 
   /// ## CTLJOBCMD
   /// 
@@ -2494,6 +2494,76 @@ pub mod items {
   #[derive(Clone, Debug)]
   pub struct DataVariableValueName(pub Vec<Char>);
   singleformat_vec!{DataVariableValueName, Ascii}
+
+  /// ## EAC
+  /// 
+  /// EquipmentAcknowledgeCode, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F16
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum EquipmentAcknowledgeCode {
+    Acknowledge = 0,
+    DoesNotExist = 1,
+    Busy = 2,
+    OutOfRange = 3,
+  }
+  singleformat_enum!{EquipmentAcknowledgeCode, Bin}
+
+  /// ## ECID
+  /// 
+  /// Equipment constant ID.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F13, S2F15, S2F29, S2F30
+  #[derive(Clone, Debug)]
+  pub enum EquipmentConstantID {
+    Ascii(Vec<Char>),
+    I1(i8),
+    I2(i16),
+    I4(i32),
+    I8(i64),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat_ascii!{EquipmentConstantID, I1, I2, I4, I8, U1, U2, U4, U8}
+
+  /// ## ECV
+  /// 
+  /// Equipment constant value.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F14, S2F15
+  #[derive(Clone, Debug)]
+  pub enum EquipmentConstantValue {
+    Bin(Vec<u8>),
+    Bool(Vec<bool>),
+    Ascii(Vec<Char>),
+    Jis8(String),
+    I1(Vec<i8>),
+    I2(Vec<i16>),
+    I4(Vec<i32>),
+    I8(Vec<i64>),
+    U1(Vec<u8>),
+    U2(Vec<u16>),
+    U4(Vec<u32>),
+    U8(Vec<u64>),
+    F4(Vec<f32>),
+    F8(Vec<f64>),
+  }
+  multiformat_vec!{EquipmentConstantValue, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
 
   /// ## ERRCODE
   /// 
@@ -4342,8 +4412,8 @@ pub mod messages {
     /// - [CSAACK]
     /// 
     /// [S2F7]:   ServiceProgramRunSend
-    /// [CSAACK]: EquipmentAcknowledge
-    pub struct ServiceProgramRunAcknowledge(pub EquipmentAcknowledge);
+    /// [CSAACK]: ServiceAcknowledgeCode
+    pub struct ServiceProgramRunAcknowledge(pub ServiceAcknowledgeCode);
     message_data!{ServiceProgramRunAcknowledge, false, 2, 8}
 
     /// ## S2F9
@@ -4436,6 +4506,111 @@ pub mod messages {
     /// [SPID]: ServiceProgramID
     pub struct ServiceProgramDirectoryData(pub VecList<ServiceProgramID>);
     message_data!{ServiceProgramDirectoryData, false, 2, 12}
+
+    /// ## S2F13
+    /// 
+    /// **Equipment Calibration Request (ECR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Request equipment constant values, which are changed infrequently.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - N
+    ///    - [ECID]
+    /// 
+    /// N is the number of requested [ECV]s.
+    /// Zero-length N means report all [ECV]s.
+    /// 
+    /// [ECID]: EquipmentConstantID
+    /// [ECV]:  EquipmentConstantValue
+    pub struct EquipmentConstantRequest(pub VecList<EquipmentConstantID>);
+    message_data!{EquipmentConstantRequest, true, 2, 13}
+
+    /// ## S2F14
+    /// 
+    /// **Equipment Constant Data (ECD)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Equipment constant values.
+    /// 
+    /// TODO: Implement zero-length list item exception.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - N
+    ///    - [ECV]
+    /// 
+    /// N is the number of [ECV]s.
+    /// 
+    /// Zero-length list item [ECV] means that the corresponding [ECID] does
+    /// not exist. The list format is not allowed for [ECV] except in this
+    /// case.
+    /// 
+    /// [ECID]: EquipmentConstantID
+    /// [ECV]:  EquipmentConstantValue
+    pub struct EquipmentConstantData(pub VecList<EquipmentConstantValue>);
+    message_data!{EquipmentConstantData, false, 2, 14}
+
+    /// ## S2F15
+    /// 
+    /// **New Equipment Constant Send (ECS)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Change equipment constants.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - N
+    ///    - List - 2
+    ///       1. [ECID]
+    ///       2. [ECV]
+    /// 
+    /// N is the number of equipment constants to be changed.
+    /// 
+    /// [ECID]: EquipmentConstantID
+    /// [ECV]:  EquipmentConstantValue
+    pub struct NewEquipmentConstantSend(pub VecList<(EquipmentConstantID, EquipmentConstantValue)>);
+    message_data!{NewEquipmentConstantSend, true, 2, 15}
+
+    /// ## S2F16
+    /// 
+    /// **New Equipment Constant Acknowledge (ECA)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY NEVER**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [EAC]
+    /// 
+    /// [EAC]: EquipmentAcknowledgeCode
+    pub struct NewEquipmentConstantAcknowledge(pub EquipmentAcknowledgeCode);
+    message_data!{NewEquipmentConstantAcknowledge, false, 2, 16}
   }
 
   /// # STREAM 3: MATERIAL STATUS
