@@ -7,11 +7,12 @@
 //! 
 //! ---------------------------------------------------------------------------
 //! 
-//! [SECS-II] is a Presentation Protocol designed to facilitate a common
-//! communications language between semiconductor equipment, particularly as
-//! understood by the GEM ([SEMI E30]) Application Protocol
-//! (together known as SECS/GEM). Common Session Protocols for transporting
-//! [SECS-II] messages include SECS-I ([SEMI E4]) and HSMS ([SEMI E37]).
+//! [SECS-II] is a [Presentation Layer] protocol designed to facilitate a
+//! common communications language between semiconductor equipment,
+//! particularly as understood by the GEM ([SEMI E30]) [Application Layer]
+//! protocol (together known as SECS/GEM). Common [Session Layer] protocols for
+//! transporting [SECS-II] messages include SECS-I ([SEMI E4]) and HSMS
+//! ([SEMI E37]).
 //! 
 //! ---------------------------------------------------------------------------
 //! 
@@ -37,6 +38,10 @@
 //! [SEMI E5]:  https://store-us.semi.org/products/e00500-semi-e5-specification-for-semi-equipment-communications-standard-2-message-content-secs-ii
 //! [SEMI E30]: https://store-us.semi.org/products/e03000-semi-e30-specification-for-the-generic-model-for-communications-and-control-of-manufacturing-equipment-gem
 //! [SEMI E37]: https://store-us.semi.org/products/e03700-semi-e37-high-speed-secs-message-services-hsms-generic-services
+//! 
+//! [Application Layer]:  https://en.wikipedia.org/wiki/Application_layer
+//! [Presentation Layer]: https://en.wikipedia.org/wiki/Presentation_layer
+//! [Session Layer]:      https://en.wikipedia.org/wiki/Session_layer
 //! 
 //! [SECS-II]:  crate
 
@@ -1083,7 +1088,8 @@ pub mod items {
 
   /// ## VECTORIZED LIST
   /// 
-  /// Represents a List with a variable number of elements of the same structure.
+  /// Represents a List with a variable number of elements of the same
+  /// structure. The intent is that type T will be a specific item.
   pub struct VecList<T>(pub Vec<T>);
 
   /// ## ITEM -> VECTORIZED LIST
@@ -1218,6 +1224,100 @@ pub mod items {
         value.0.into(),
         value.1.into(),
         value.2.into(),
+      ])
+    }
+  }
+
+  /// ## ITEM -> HETEROGENEOUS LIST (4 ELEMENTS)
+  impl <
+    A: TryFrom<Item, Error = Error>,
+    B: TryFrom<Item, Error = Error>,
+    C: TryFrom<Item, Error = Error>,
+    D: TryFrom<Item, Error = Error>,
+  > TryFrom<Item> for (A, B, C, D) {
+    type Error = Error;
+
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::List(list) => {
+          if list.len() == 4 {
+            Ok((
+              list[0].clone().try_into()?,
+              list[1].clone().try_into()?,
+              list[2].clone().try_into()?,
+              list[3].clone().try_into()?,
+            ))
+          } else {
+            Err(Error::WrongFormat)
+          }
+        },
+        _ => Err(Error::WrongFormat),
+      }
+    }
+  }
+
+  /// ## HETEROGENEOUS LIST (4 ELEMENTS) -> ITEM
+  impl <
+    A: Into<Item>,
+    B: Into<Item>,
+    C: Into<Item>,
+    D: Into<Item>,
+  > From<(A, B, C, D)> for Item {
+    fn from(value: (A, B, C, D)) -> Self {
+      Item::List(vec![
+        value.0.into(),
+        value.1.into(),
+        value.2.into(),
+        value.3.into(),
+      ])
+    }
+  }
+
+  /// ## ITEM -> HETEROGENEOUS LIST (5 ELEMENTS)
+  impl <
+    A: TryFrom<Item, Error = Error>,
+    B: TryFrom<Item, Error = Error>,
+    C: TryFrom<Item, Error = Error>,
+    D: TryFrom<Item, Error = Error>,
+    E: TryFrom<Item, Error = Error>,
+  > TryFrom<Item> for (A, B, C, D, E) {
+    type Error = Error;
+
+    fn try_from(item: Item) -> Result<Self, Self::Error> {
+      match item {
+        Item::List(list) => {
+          if list.len() == 5 {
+            Ok((
+              list[0].clone().try_into()?,
+              list[1].clone().try_into()?,
+              list[2].clone().try_into()?,
+              list[3].clone().try_into()?,
+              list[4].clone().try_into()?,
+            ))
+          } else {
+            Err(Error::WrongFormat)
+          }
+        },
+        _ => Err(Error::WrongFormat),
+      }
+    }
+  }
+
+  /// ## HETEROGENEOUS LIST (5 ELEMENTS) -> ITEM
+  impl <
+    A: Into<Item>,
+    B: Into<Item>,
+    C: Into<Item>,
+    D: Into<Item>,
+    E: Into<Item>,
+  > From<(A, B, C, D, E)> for Item {
+    fn from(value: (A, B, C, D, E)) -> Self {
+      Item::List(vec![
+        value.0.into(),
+        value.1.into(),
+        value.2.into(),
+        value.3.into(),
+        value.4.into(),
       ])
     }
   }
@@ -2161,8 +2261,25 @@ pub mod items {
   pub struct Checkpoint(pub u32);
   singleformat!{Checkpoint, U4}
 
-  // TODO: CMDA
-  // Usual about reserved/user enum values.
+  /// ## CMDA
+  /// 
+  /// Command acknowledge code.
+  /// 
+  /// TODO: Implement Format 31.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F22, S2F28
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum CommandAcknowledge {
+    Ok = 0,
+    CommandDoesNotExist = 1,
+    CannotPerformNow = 2,
+  }
+  singleformat_enum!{CommandAcknowledge, U1}
 
   // TODO: CMDMAX
   // How to deal with negative values being invalid even though you can use signed int?
@@ -2479,6 +2596,42 @@ pub mod items {
     U8(u64),
   }
   multiformat!{DataLength, I1, I2, I4, I8, U1, U2, U4, U8}
+
+  /// ## DSPER
+  /// 
+  /// Data sample period.
+  /// 
+  /// TODO: Implement format restrictions.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Values
+  /// 
+  /// Format 1:
+  /// - hhmmss
+  ///    - hh = Hours
+  ///    - mm = Minutes
+  ///    - ss = Seconds
+  /// 
+  /// Format 2:
+  /// - hhmmsscc
+  ///    - hh = Hours
+  ///    - mm = Minutes
+  ///    - ss = Seconds
+  ///    - cc = CentiSeconds
+  /// 
+  /// Equipment must implement Format 1, and may optionally implement Format 2.
+  /// 
+  /// Support for Format 2 does not necessitate a trace resolution of 0.01sec.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F23
+  #[derive(Clone, Debug)]
+  pub struct DataSamplePeriod(pub Vec<Char>);
+  singleformat_vec!{DataSamplePeriod, Ascii}
 
   /// ## DVVALNAME
   /// 
@@ -2924,6 +3077,85 @@ pub mod items {
   }
   singleformat_enum!{OnLineAcknowledge, Bin}
 
+  /// ## RAC
+  /// 
+  /// Reset acknowledge code, 1 byte.
+  /// 
+  /// TODO: Implement Format 31.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F20
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum ResetAcknowledgeCode {
+    Ok = 0,
+    Denied = 1,
+  }
+  singleformat_enum!{ResetAcknowledgeCode, U1}
+
+  /// ## RCMD
+  /// 
+  /// Remote command.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F21, S2F41, S2F49
+  #[derive(Clone, Debug)]
+  pub enum RemoteCommand {
+    Ascii(Vec<Char>),
+    I1(i8),
+    U1(u8),
+  }
+  multiformat_ascii!{RemoteCommand, I1, U1}
+
+  /// ## REPGSZ
+  /// 
+  /// Reporting group size.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F23
+  /// - S17F5
+  #[derive(Clone, Debug)]
+  pub enum ReportingGroupSize {
+    Ascii(Vec<Char>),
+    I1(i8),
+    I2(i16),
+    I4(i32),
+    I8(i64),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat_ascii!{ReportingGroupSize, I1, I2, I4, I8, U1, U2, U4, U8}
+
+  /// ## RIC
+  /// 
+  /// Reset code, 1 byte.
+  /// 
+  /// TODO: Implement Format 31.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F19
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum ResetCode {
+    NotUsed = 0,
+    PowerUpReset = 1,
+  }
+  singleformat_enum!{ResetCode, U1}
+
   /// ## SFCD
   /// 
   /// Status form code, 1 byte.
@@ -3140,6 +3372,129 @@ pub mod items {
     F8(Vec<f64>),
   }
   multiformat_vec!{TableElement, List, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
+
+  /// ## TIAACK
+  /// 
+  /// Equipment acknowledge code, 1 byte.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F24
+  #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+  #[repr(u8)]
+  pub enum TraceInitializeAcknowledgeCode {
+    Ok = 0,
+    TooManySVID = 1,
+    TooManyTraces = 2,
+    InvalidPeriod = 3,
+    UnknownSVID = 4,
+    InvalidREPGSZ = 5,
+  }
+  singleformat_enum!{TraceInitializeAcknowledgeCode, Bin}
+
+  /// ## TIME
+  /// 
+  /// Time of day.
+  /// 
+  /// TODO: Implement specific format restrictions.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Values
+  /// 
+  /// 12-byte format:
+  /// - YYMMDDhhmmss
+  ///    - YY = Year,   00 to 99
+  ///    - MM = Month,  01 to 12
+  ///    - DD = Day,    01 to 31
+  ///    - hh = Hour,   00 to 23
+  ///    - mm = Minute, 00 to 59
+  ///    - ss = Second, 00 to 59
+  /// 
+  /// 16-byte format:
+  /// - YYYYMMDDhhmmsscc
+  ///    - YYYY = Year,      0000 to 9999
+  ///    -   MM = Month,       01 to   12
+  ///    -   DD = Day,         01 to   31
+  ///    -   hh = Hour,        00 to   23
+  ///    -   mm = Minute,      00 to   59
+  ///    -   ss = Second,      00 to   59
+  ///    -   cc = Centisecond, 00 to   99
+  /// 
+  /// Extended format (Maximum 32 Bytes)
+  /// - YYYY-MM-DDThh:mm:ss.sTZD
+  ///    - YYYY = Year,     0000 to 9999
+  ///    -   MM = Month,      01 to   12
+  ///    -   DD = Day,        01 to   31
+  ///    -    T = Special Separator
+  ///    -   hh = Hour,       00 to   23
+  ///    -   mm = Minute,     00 to   59
+  ///    -   ss = Second,     00 to   59
+  ///    -   .s = Fraction,  One to Six Digits
+  ///    -  TZD = Time Zone Designator
+  ///       - Local Time: +hh:mm or -hh:mm
+  ///       - UTC: Z 
+  /// - See SEMI E148 for more information.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F18, S2F31
+  #[derive(Clone, Debug)]
+  pub struct Time(pub Vec<Char>);
+  singleformat_vec!{Time, Ascii}
+
+  /// ## TOTSMP
+  /// 
+  /// Total samples to be made.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F23
+  /// - S17F5
+  #[derive(Clone, Debug)]
+  pub enum TotalSamples {
+    Ascii(Vec<Char>),
+    I1(i8),
+    I2(i16),
+    I4(i32),
+    I8(i64),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat_ascii!{TotalSamples, I1, I2, I4, I8, U1, U2, U4, U8}
+
+  /// ## TRID
+  /// 
+  /// Trace request ID.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// #### Used By
+  /// 
+  /// - S2F23
+  /// - S6F1, S6F27, S6F28, S6F29, S6F30
+  /// - S17F5, S17F6, S17F7, S17F8, S17F13, S17F14
+  #[derive(Clone, Debug)]
+  pub enum TraceRequestID {
+    Ascii(Vec<Char>),
+    I1(i8),
+    I2(i16),
+    I4(i32),
+    I8(i64),
+    U1(u8),
+    U2(u16),
+    U4(u32),
+    U8(u64),
+  }
+  multiformat_ascii!{TraceRequestID, I1, I2, I4, I8, U1, U2, U4, U8}
 
   /// ## TSIP
   /// 
@@ -3414,7 +3769,7 @@ pub mod messages {
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST <-> EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3449,13 +3804,13 @@ pub mod messages {
     pub struct AreYouThere;
     message_headeronly!{AreYouThere, true, 1, 1}
 
-    /// ## S1F2
+    /// ## S1F2H
     /// 
     /// **On Line Data (D)**
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST -> EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3469,13 +3824,13 @@ pub mod messages {
     pub struct OnLineDataHost(pub ());
     message_data!{OnLineDataHost, false, 1, 2}
 
-    /// ## S1F2
+    /// ## S1F2E
     /// 
     /// **On Line Data (D)**
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3525,7 +3880,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3578,7 +3933,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3625,7 +3980,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3671,7 +4026,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3725,7 +4080,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3751,7 +4106,7 @@ pub mod messages {
     pub struct StatusVariableNamelistReply(pub VecList<(StatusVariableID, StatusVariableName, Units)>);
     message_data!{StatusVariableNamelistReply, false, 1, 12}
 
-    /// ## S1F13
+    /// ## S1F13H
     /// 
     /// **Establish Communications Request (CR)**
     /// 
@@ -3785,7 +4140,7 @@ pub mod messages {
     pub struct HostCR(pub ());
     message_data!{HostCR, true, 1, 13}
 
-    /// ## S1F13
+    /// ## S1F13E
     /// 
     /// **Establish Communications Request (CR)**
     /// 
@@ -3823,13 +4178,13 @@ pub mod messages {
     pub struct EquipmentCR(pub (ModelName, SoftwareRevision));
     message_data!{EquipmentCR, true, 1, 13}
 
-    /// ## S1F14
+    /// ## S1F14H
     /// 
     /// **Establish Communications Request Acknowledge (CRA)**
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST -> EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3848,13 +4203,13 @@ pub mod messages {
     pub struct HostCRA(pub (CommAck, ()));
     message_data!{HostCRA, false, 1, 14}
 
-    /// ## S1F14
+    /// ## S1F14E
     /// 
     /// **Establish Communications Request Acknowledge (CRA)**
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -3907,7 +4262,7 @@ pub mod messages {
     ///  
     /// - **SINGLE-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// ---------------------------------------------------------------------
     /// 
@@ -3949,7 +4304,7 @@ pub mod messages {
     ///  
     /// - **SINGLE-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// ---------------------------------------------------------------------
     /// 
@@ -4007,7 +4362,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <-> EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4079,7 +4434,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4141,7 +4496,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4218,7 +4573,7 @@ pub mod messages {
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST <-> EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4263,7 +4618,7 @@ pub mod messages {
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST <-> EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4308,7 +4663,7 @@ pub mod messages {
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST <-> EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4353,7 +4708,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <-> EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4399,7 +4754,7 @@ pub mod messages {
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4444,7 +4799,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4488,7 +4843,7 @@ pub mod messages {
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST <-> EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4540,7 +4895,7 @@ pub mod messages {
     /// 
     /// - **MULTI-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4600,7 +4955,14 @@ pub mod messages {
     /// 
     /// - **SINGLE-BLOCK**
     /// - **HOST <- EQUIPMENT**
-    /// - **REPLY NEVER**
+    /// - **REPLY FORBIDDEN**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Acknowledge equipment constant changes.
+    /// 
+    /// If error, the equipment should not update any of the constants
+    /// specified by [S2F15].
     /// 
     /// -----------------------------------------------------------------------
     /// 
@@ -4608,9 +4970,265 @@ pub mod messages {
     /// 
     /// - [EAC]
     /// 
-    /// [EAC]: EquipmentAcknowledgeCode
+    /// [EAC]:   EquipmentAcknowledgeCode
+    /// [S2F15]: NewEquipmentConstantSend
     pub struct NewEquipmentConstantAcknowledge(pub EquipmentAcknowledgeCode);
     message_data!{NewEquipmentConstantAcknowledge, false, 2, 16}
+
+    /// ## S2F17
+    /// 
+    /// **Date and Time Request (DTR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Check time base or synchronize clocks.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// Header only.
+    pub struct DateTimeRequest;
+    message_headeronly!{DateTimeRequest, true, 2, 17}
+
+    /// ## S2F18
+    /// 
+    /// **Date and Time Data (DTD)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY FORBIDDEN**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Time data.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [TIME]
+    /// 
+    /// Zero-length [TIME] item means no time data exists.
+    /// 
+    /// [TIME]: Time
+    pub struct DateTimeData(pub Time);
+    message_data!{DateTimeData, false, 2, 18}
+
+    /// ## S2F19
+    /// 
+    /// **Reset/Initialize Send (RIS)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Cause equipment to reach one of several predetermined conditions.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [RIC]
+    /// 
+    /// [RIC]: ResetCode
+    pub struct ResetInitializeSend(pub ResetCode);
+    message_data!{ResetInitializeSend, true, 2, 19}
+
+    /// ## S2F20
+    /// 
+    /// **Reset Acknowledge (RIA)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY FORBIDDEN**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Acknowledge reset.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [RAC]
+    /// 
+    /// [RAC]: ResetAcknowledgeCode
+    pub struct ResetAcknowledge(pub ResetAcknowledgeCode);
+    message_data!{ResetAcknowledge, false, 2, 20}
+
+    /// ## S2F21
+    /// 
+    /// **Remote Command Send (RCS)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY OPTIONAL**
+    /// 
+    /// TODO: Implement optional reply.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Cause activity on equipment to commence or cease.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [RCMD]
+    /// 
+    /// [RCMD]: RemoteCommand
+    pub struct RemoteCommandSend(pub RemoteCommand);
+    message_data!{RemoteCommandSend, true, 2, 21}
+
+    /// ## S2F22
+    /// 
+    /// **Remote Command Acknowledge (RCA)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY FORBIDDEN**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Acknowledge remote command.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [CMDA]
+    /// 
+    /// [CMDA]: CommandAcknowledge
+    pub struct RemoteCommandAcknowledge(pub CommandAcknowledge);
+    message_data!{RemoteCommandAcknowledge, false, 2, 22}
+
+    /// ## S2F23
+    /// 
+    /// **Trace Initialize Send (TIS)**
+    /// 
+    /// - **MULTI-BLOCK**
+    /// - **HOST -> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Status variables exist at all times. Request that a subset of said
+    /// status variables be reported back to the host as a function of time.
+    /// 
+    /// The trace data is returned by S6F1, and is related to the original
+    /// request by the [TRID].
+    /// 
+    /// Multiple trace requests may be made.
+    /// 
+    /// If equipment receives a trace request with the same [TRID] as an
+    /// existing trace request, it should terminate the old trace request
+    /// before beginning the new one.
+    /// 
+    /// A trace in progress may be terminated by sending a trace request with
+    /// the same [TRID] and a [TOTSMP] of zero.
+    /// 
+    /// If this message is multi-block, it must be preceded by an S2F39/S2F40
+    /// transaction.
+    /// 
+    /// Some equipment may support only single-block S6F1 and may refuse this
+    /// message if it would cause a multi-block S6F1.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - List - 5
+    ///    1. [TRID]
+    ///    2. [DSPER]
+    ///    3. [TOTSMP]
+    ///    4. [REPGSZ]
+    ///    5. List - N
+    ///       - [SVID]
+    /// 
+    /// N is the number of status variables to become a part of the trace.
+    /// 
+    /// [TRID]:   TraceRequestID
+    /// [DSPER]:  DataSamplePeriod
+    /// [TOTSMP]: TotalSamples
+    /// [REPGSZ]: ReportingGroupSize
+    /// [SVID]:   StatusVariableID
+    pub struct TraceInitializeSend(pub (TraceRequestID, DataSamplePeriod, TotalSamples, ReportingGroupSize, VecList<StatusVariableID>));
+    message_data!{TraceInitializeSend, true, 2, 23}
+
+    /// ## S2F24
+    /// 
+    /// **Trace Initialize Acknowledge (TIA)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <- EQUIPMENT**
+    /// - **REPLY FORBIDDEN**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Acknowledge trace initialize.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [TIAACK]
+    /// 
+    /// [TIAACK]: TraceInitializeAcknowledgeCode
+    pub struct TraceInitializeAcknowledge(pub TraceInitializeAcknowledgeCode);
+    message_data!{TraceInitializeAcknowledge, false, 2, 24}
+
+    /// ## S2F25
+    /// 
+    /// **Loopback Diagnostic Request (LDR)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY REQUIRED**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Diagnostic message to test protocol and communication circuits.
+    /// 
+    /// Binary string is echoed back verbatim.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [ABS]
+    /// 
+    /// [ABS]: AnyBinaryString
+    pub struct LoopbackDiagnosticRequest(pub AnyBinaryString);
+    message_data!{LoopbackDiagnosticRequest, true, 2, 25}
+
+    /// ## S2F26
+    /// 
+    /// **Loopback Diagnostic Data (LDD)**
+    /// 
+    /// - **SINGLE-BLOCK**
+    /// - **HOST <-> EQUIPMENT**
+    /// - **REPLY FORBIDDEN**
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// Echo binary string.
+    /// 
+    /// -----------------------------------------------------------------------
+    /// 
+    /// #### Structure
+    /// 
+    /// - [ABS]
+    /// 
+    /// [ABS]: AnyBinaryString
+    pub struct LoopbackDiagnosticData(pub AnyBinaryString);
+    message_data!{LoopbackDiagnosticData, false, 2, 26}
   }
 
   /// # STREAM 3: MATERIAL STATUS
