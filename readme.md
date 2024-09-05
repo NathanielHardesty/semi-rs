@@ -1,6 +1,6 @@
 # SEMI NETWORKING STACK RUST LIBRARIES
 
-Copyright © 2024 Nathaniel Hardesty, Licensed under the [MIT License](.\license.md)
+Copyright © 2024 Nathaniel Hardesty, Licensed under the [MIT License](./license.md)
 
 This software is created by a third-party and not endorsed or supported by SEMI.
 
