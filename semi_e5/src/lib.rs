@@ -182,7 +182,7 @@ pub enum Error {
 /// of information. Each item comprises a [Vector] of a particular type,
 /// or sometimes a [String] of characters.
 /// 
-/// [Format]: format
+/// [Format]: crate::format
 /// [List]:   Item::List
 /// [Vector]: Vec
 /// [String]: String
