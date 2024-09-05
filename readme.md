@@ -94,5 +94,5 @@ known as SECS/GEM).
 [Presentation Layer]: https://en.wikipedia.org/wiki/Presentation_layer
 [Session Layer]:      https://en.wikipedia.org/wiki/Session_layer
 
-[SECS-II]: .\semi_e5\readme.md
-[HSMS]:    .\semi_e37\readme.md
+[SECS-II]: ./semi_e5/readme.md
+[HSMS]:    ./semi_e37/readme.md
