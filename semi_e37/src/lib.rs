@@ -1,18 +1,46 @@
+// Copyright © 2024 Nathaniel Hardesty
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the “Software”), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
 //! # HIGH-SPEED SECS MESSAGE SERVICES (HSMS)
+//! 
+//! Copyright © 2024 Nathaniel Hardesty, Licensed under the MIT License
+//! 
+//! This software is created by a third-party and not endorsed or supported by
+//! SEMI.
+//! 
+//! The codebase will be updated to reflect more up-to-date SEMI standards
+//! if/when they can be acquired for this purpose.
+//! 
+//! ---------------------------------------------------------------------------
+//! 
 //! **Based on:**
 //! - **[SEMI E37]-1109**
 //! - **[SEMI E37].1-0702**
 //! 
-//! This third-party codebase will be updated to reflect more up-to-date SEMI
-//! standards if/when they can be acquired for this purpose.
-//! 
 //! ---------------------------------------------------------------------------
 //! 
-//! [HSMS] is a Session Protocol designed to facilitate communications between
-//! semiconductor equipment over TCP/IP, particularly for sending data
-//! formatted with the SECS-II ([SEMI E5]) Presentation Protocol and
-//! understood by the GEM ([SEMI E30]) Application Protocol (together known as
-//! SECS/GEM).
+//! [HSMS] is a [Session Layer] protocol designed to facilitate communications
+//! between semiconductor equipment over TCP/IP, particularly for sending data
+//! formatted with the SECS-II ([SEMI E5]) [Presentation Layer] protocol and
+//! understood by the GEM ([SEMI E30]) [Application Layer] protocol (together
+//! known as SECS/GEM).
 //! 
 //! For ease of programming and extension, the functionality of [HSMS] has been
 //! divided into a few subsets, the Primitive Services, the HSMS Generic
@@ -100,6 +128,10 @@
 //! [SEMI E5]:  https://store-us.semi.org/products/e00500-semi-e5-specification-for-semi-equipment-communications-standard-2-message-content-secs-ii
 //! [SEMI E30]: https://store-us.semi.org/products/e03000-semi-e30-specification-for-the-generic-model-for-communications-and-control-of-manufacturing-equipment-gem
 //! [SEMI E37]: https://store-us.semi.org/products/e03700-semi-e37-high-speed-secs-message-services-hsms-generic-services
+//! 
+//! [Application Layer]:  https://en.wikipedia.org/wiki/Application_layer
+//! [Presentation Layer]: https://en.wikipedia.org/wiki/Presentation_layer
+//! [Session Layer]:      https://en.wikipedia.org/wiki/Session_layer
 //! 
 //! [HSMS]:                           crate
 //! [Selection State]:                SelectionState

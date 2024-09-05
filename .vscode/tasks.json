@@ -2,6 +2,7 @@
 	"version": "2.0.0",
 	"tasks": [
     {
+      "label": "Cargo Build",
       "type": "cargo",
       "command": "build",
       "problemMatcher": [
@@ -11,14 +12,13 @@
         "kind": "build",
         "isDefault": true
       },
-      "label": "Cargo Build"
     },
     {
+      "label": "Cargo Doc",
       "type": "cargo",
       "command": "doc",
       "args": [
         "-p", "semi_e5",
-        "-p", "semi_e30",
         "-p", "semi_e37",
         "--no-deps",
         "--open"
@@ -29,7 +29,14 @@
       "group": {
         "kind": "none"
       },
-      "label": "Cargo Doc"
+    },
+    {
+      "label": "Cargo Clean",
+      "type": "cargo",
+      "command": "clean",
+      "group": {
+        "kind": "none"
+      }
     }
   ]
 }

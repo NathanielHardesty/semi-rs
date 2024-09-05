@@ -1,18 +1,28 @@
 # HIGH-SPEED SECS MESSAGE SERVICES (HSMS)
-**Based on:**
-- **[SEMI E37]-1109**
-- **[SEMI E37].1-0702**
 
-This third-party codebase will be updated to reflect more up-to-date SEMI
-standards if/when they can be acquired for this purpose.
+Copyright © 2024 Nathaniel Hardesty, Licensed under the [MIT License](..\license.md)
+
+This software is created by a third-party and not endorsed or supported by SEMI.
+
+The codebase will be updated to reflect more up-to-date SEMI standards if/when they can be acquired for this purpose.
 
 -------------------------------------------------------------------------------
 
-[HSMS] is a Session Protocol designed to facilitate communications between
-semiconductor equipment over TCP/IP, particularly for sending data
-formatted with the SECS-II ([SEMI E5]) Presentation Protocol and
-understood by the GEM ([SEMI E30]) Application Protocol (together known as
-SECS/GEM).
+[![crates.io](https://img.shields.io/crates/v/semi_e37.svg)](https://crates.io/crates/semi_e37)
+[![crates.io](https://img.shields.io/crates/dv/semi_e37/0.1.1.svg)](https://crates.io/crates/semi_e37/0.1.1)
+
+**Based on:**
+
+- **[SEMI E37]-1109**
+- **[SEMI E37].1-0702**
+
+-------------------------------------------------------------------------------
+
+[HSMS] is a [Session Layer] protocol designed to facilitate communications
+between semiconductor equipment over TCP/IP, particularly for sending data
+formatted with the SECS-II ([SEMI E5]) [Presentation Layer] protocol and
+understood by the GEM ([SEMI E30]) [Application Layer] protocol (together
+known as SECS/GEM).
 
 For ease of programming and extension, the functionality of [HSMS] has been
 divided into a few subsets, the Primitive Services, the HSMS Generic
@@ -28,6 +38,7 @@ outlined by the standard, but is an important piece of establishing and
 maintaining proper communications.
 
 To use the Primitive Services:
+
 - Build [Primitive Message]s which use [Primitive Message Header]s.
 - Create a [Primitive Client] with the [New Primitive Client] function.
 - Manage the [Connection State] with the [Primitive Connect Procedure]
@@ -44,6 +55,7 @@ Defines the full functionality of the [HSMS] protocol without modification
 by any subsidiary standards.
 
 To use the HSMS Generic Services:
+
 - Build [HSMS Message]s which use an [HSMS Message ID] and
   [HSMS Message Contents]:
   - [Data Message]
@@ -87,6 +99,10 @@ Not yet implemented.
 [SEMI E30]: https://store-us.semi.org/products/e03000-semi-e30-specification-for-the-generic-model-for-communications-and-control-of-manufacturing-equipment-gem
 [SEMI E37]: https://store-us.semi.org/products/e03700-semi-e37-high-speed-secs-message-services-hsms-generic-services
 
+[Application Layer]:  https://en.wikipedia.org/wiki/Application_layer
+[Presentation Layer]: https://en.wikipedia.org/wiki/Presentation_layer
+[Session Layer]:      https://en.wikipedia.org/wiki/Session_layer
+
 [HSMS]:                           https://docs.rs/semi_e37/0.1.1/semi_e37/index.html
 [Primitive Message]:              https://docs.rs/semi_e37/0.1.1/semi_e37/struct.PrimitiveMessage.html
 [Primitive Message Header]:       https://docs.rs/semi_e37/0.1.1/semi_e37/struct.PrimitiveMessageHeader.html
@@ -96,8 +112,6 @@ Not yet implemented.
 [Primitive Disconnect Procedure]: https://docs.rs/semi_e37/0.1.1/semi_e37/struct.PrimitiveClient.html#method.disconnect
 [Primitive Transmit Procedure]:   https://docs.rs/semi_e37/0.1.1/semi_e37/struct.PrimitiveClient.html#method.transmit
 [Connection State]:               https://docs.rs/semi_e37/0.1.1/semi_e37/enum.ConnectionState.html
-[Connection Mode]:                https://docs.rs/semi_e37/0.1.1/semi_e37/enum.ConnectionMode.html
-
 [HSMS Message]:                   https://docs.rs/semi_e37/0.1.1/semi_e37/struct.HsmsMessage.html
 [HSMS Message ID]:                https://docs.rs/semi_e37/0.1.1/semi_e37/struct.HsmsMessageID.html
 [HSMS Message Contents]:          https://docs.rs/semi_e37/0.1.1/semi_e37/enum.HsmsMessageContents.html
@@ -122,10 +136,3 @@ Not yet implemented.
 [HSMS Reject Procedure]:          https://docs.rs/semi_e37/0.1.1/semi_e37/struct.HsmsClient.html#method.reject
 [Selection State]:                https://docs.rs/semi_e37/0.1.1/semi_e37/enum.SelectionState.html
 [Parameter Settings]:             https://docs.rs/semi_e37/0.1.1/semi_e37/struct.ParameterSettings.html
-
-[Connection State Transition]:    https://docs.rs/semi_e37/0.1.1/semi_e37/enum.ConnectionStateTransition.html
-[Presentation Type]:              https://docs.rs/semi_e37/0.1.1/semi_e37/enum.PresentationType.html
-[Session Type]:                   https://docs.rs/semi_e37/0.1.1/semi_e37/enum.SessionType.html
-[Select Status]:                  https://docs.rs/semi_e37/0.1.1/semi_e37/enum.SelectStatus.html
-[Deselect Status]:                https://docs.rs/semi_e37/0.1.1/semi_e37/enum.DeselectStatus.html
-[Reject Reason]:                  https://docs.rs/semi_e37/0.1.1/semi_e37/enum.RejectReason.html
