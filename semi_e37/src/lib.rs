@@ -75,13 +75,26 @@
 //! 
 //! ---------------------------------------------------------------------------
 //! 
-//! ## TO BE DONE
+//! ## TODO
 //! 
 //! - [HSMS Client] - [HSMS Deselect Procedure]
 //! - [HSMS Client] - "Simultaneous Deselect Procedure"
 //! - [HSMS Client] - [HSMS Separate Procedure]
 //! - [HSMS Client] - [HSMS Reject Procedure]
 //! - HSMS-SS
+//! 
+//! ---------------------------------------------------------------------------
+//! 
+//! ## Referenced Standards
+//! 
+//! - SEMI E4             - SEMI Equipment Communications Standard 1 Message Transfer (SECS-I)
+//! - SEMI E5             - SEMI Equipment Communications Standard 2 Message Content (SECS-II)
+//! - IETF RFC 791        - Internet Protocol (IP)
+//! - IETF RFC 792        - Internet Control Message Protocol (ICMP)
+//! - IETF RFC 793        - Transmission Control Protocol (TCP)
+//! - IETF RFC 1120       - Requirements for Internet Hosts - Communication Layers
+//! - IETF RFC 1340       - Assigned Numbers
+//! - IEEE POSIX P1003.12 - Protocol Independent Interfaces (PII)
 //! 
 //! [SEMI E4]:  https://store-us.semi.org/products/e00400-semi-e4-specification-for-semi-equipment-communications-standard-1-message-transfer-secs-i
 //! [SEMI E5]:  https://store-us.semi.org/products/e00500-semi-e5-specification-for-semi-equipment-communications-standard-2-message-content-secs-ii
