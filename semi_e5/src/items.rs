@@ -327,6 +327,59 @@ impl <
   }
 }
 
+/// ## ITEM -> HETEROGENEOUS LIST (6 ELEMENTS)
+impl <
+  A: TryFrom<Item, Error = Error>,
+  B: TryFrom<Item, Error = Error>,
+  C: TryFrom<Item, Error = Error>,
+  D: TryFrom<Item, Error = Error>,
+  E: TryFrom<Item, Error = Error>,
+  F: TryFrom<Item, Error = Error>,
+> TryFrom<Item> for (A, B, C, D, E, F) {
+  type Error = Error;
+
+  fn try_from(item: Item) -> Result<Self, Self::Error> {
+    match item {
+      Item::List(list) => {
+        if list.len() == 6 {
+          Ok((
+            list[0].clone().try_into()?,
+            list[1].clone().try_into()?,
+            list[2].clone().try_into()?,
+            list[3].clone().try_into()?,
+            list[4].clone().try_into()?,
+            list[5].clone().try_into()?,
+          ))
+        } else {
+          Err(Error::WrongFormat)
+        }
+      },
+      _ => Err(Error::WrongFormat),
+    }
+  }
+}
+
+/// ## HETEROGENEOUS LIST (6 ELEMENTS) -> ITEM
+impl <
+  A: Into<Item>,
+  B: Into<Item>,
+  C: Into<Item>,
+  D: Into<Item>,
+  E: Into<Item>,
+  F: Into<Item>,
+> From<(A, B, C, D, E, F)> for Item {
+  fn from(value: (A, B, C, D, E, F)) -> Self {
+    Item::List(vec![
+      value.0.into(),
+      value.1.into(),
+      value.2.into(),
+      value.3.into(),
+      value.4.into(),
+      value.5.into(),
+    ])
+  }
+}
+
 // TODO: ITEM -> HETEROGENEOUS LIST, UP TO 15 ELEMENTS
 // TODO: HETEROGENEOUS LIST -> ITEM, UP TO 15 ELEMENTS
 // NOTE: To implement Stream 1, only lengths of 2 and 3 are required.
@@ -1657,7 +1710,7 @@ singleformat_vec!{DataVariableValueName, Ascii}
 /// 
 /// EquipmentAcknowledgeCode, 1 byte.
 /// 
-/// -------------------------------------------------------------------------
+/// ---------------------------------------------------------------------------
 /// 
 /// #### Used By
 /// 
@@ -1672,11 +1725,38 @@ pub enum EquipmentAcknowledgeCode {
 }
 singleformat_enum!{EquipmentAcknowledgeCode, Bin}
 
+/// ## ECDEF
+/// 
+/// Equipment constant default value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F30
+pub enum EquipmentConstantDefaultValue {
+  Bin(Vec<u8>),
+  Bool(Vec<bool>),
+  Ascii(Vec<Char>),
+  Jis8(String),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+  F4(Vec<f32>),
+  F8(Vec<f64>),
+}
+multiformat_vec!{EquipmentConstantDefaultValue, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
+
 /// ## ECID
 /// 
 /// Equipment constant ID.
 /// 
-/// -------------------------------------------------------------------------
+/// ---------------------------------------------------------------------------
 /// 
 /// #### Used By
 /// 
@@ -1695,11 +1775,77 @@ pub enum EquipmentConstantID {
 }
 multiformat_ascii!{EquipmentConstantID, I1, I2, I4, I8, U1, U2, U4, U8}
 
+/// ## ECMAX
+/// 
+/// Equipment constant maximum value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F30
+pub enum EquipmentConstantMaximumValue {
+  Bin(Vec<u8>),
+  Bool(Vec<bool>),
+  Ascii(Vec<Char>),
+  Jis8(String),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+  F4(Vec<f32>),
+  F8(Vec<f64>),
+}
+multiformat_vec!{EquipmentConstantMaximumValue, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
+
+/// ## ECMIN
+/// 
+/// Equipment constant minimum value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F30
+pub enum EquipmentConstantMinimumValue {
+  Bin(Vec<u8>),
+  Bool(Vec<bool>),
+  Ascii(Vec<Char>),
+  Jis8(String),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+  F4(Vec<f32>),
+  F8(Vec<f64>),
+}
+multiformat_vec!{EquipmentConstantMinimumValue, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
+
+/// ## ECNAME
+/// 
+/// Equipment constant name.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F30
+pub struct EquipmentConstantName(pub Vec<Char>);
+singleformat_vec!{EquipmentConstantName, Ascii}
+
 /// ## ECV
 /// 
 /// Equipment constant value.
 /// 
-/// -------------------------------------------------------------------------
+/// ---------------------------------------------------------------------------
 /// 
 /// #### Used By
 /// 
@@ -1729,7 +1875,7 @@ multiformat_vec!{EquipmentConstantValue, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8,
 /// 
 /// TODO: Implement user defined errors.
 /// 
-/// -------------------------------------------------------------------------
+/// ---------------------------------------------------------------------------
 /// 
 /// #### Used By
 /// 
@@ -1956,6 +2102,25 @@ pub enum Length {
 }
 multiformat!{Length, I1, I2, I4, I8, U1, U2, U4, U8}
 
+/// ## LOC
+/// 
+/// Machine material location code.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// 1 byte.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F27
+/// - S3F2
+pub struct LocationCode(pub u8);
+singleformat!{LocationCode, Bin}
+
 /// ## MDLN
 /// 
 /// Equipment Model Type, 20 bytes max.
@@ -1975,6 +2140,27 @@ multiformat!{Length, I1, I2, I4, I8, U1, U2, U4, U8}
 #[derive(Clone, Debug)]
 pub struct ModelName(Vec<Char>);
 singleformat_vec!{ModelName, Ascii, 0..=20, Char}
+
+/// ## MID
+/// 
+/// Material ID.
+/// 
+/// Maximum 80 characters.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F27
+/// - S3F2, S3F4, S3F7, S3F9, S3F12, S3F13
+/// - S4F1, S4F3, S4F5, S4F7, S4F9, S4F11, S4F13, S4F15, S4F17
+/// - S7F7, S7F8, S7F10, S7F11, S7F13, S7F35, S7F36
+/// - S12F1, S12F3, S12F4, S12F5, S12F7, S12F9, S12F11, S12F13, S12F14, S12F15
+///   S12F16, S12F17, S12F18
+/// - S16F3, S16F11, S16F15
+/// - S18F10, S18F11, S18F16
+pub struct MaterialID(Vec<Char>);
+singleformat_vec!{MaterialID, Ascii, 0..=80, Char}
 
 /// ## NULBC
 /// 
@@ -2081,6 +2267,32 @@ pub enum OnLineAcknowledge {
   AlreadyOnLine = 2,
 }
 singleformat_enum!{OnLineAcknowledge, Bin}
+
+/// ## PPID
+/// 
+/// Process Program ID
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Maximum 120 bytes.
+/// 
+/// Format is host dependent. For the internal use of the equipment, it can be
+/// treated as a unique binary pattern. If the equipment is not prepared to
+/// display the transmitted code, it should be displayed in hexadecimal.
+/// 
+/// TODO: Implement format 10.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F27
+/// - S7F1, S7F3, S7F5, S7F6, S7F8, S7F10, S7F11, S7F13, S7F17, S7F20, S7F23,
+///   S7F25, S7F26, S7F27, S7F31, S7F33, S7F34, S7F36, S7F39, S7F43
+pub struct ProcessProgramID(Vec<Char>);
+singleformat_vec!{ProcessProgramID, Ascii, 0..=120, Char}
 
 /// ## RAC
 /// 

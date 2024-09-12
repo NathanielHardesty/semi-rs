@@ -715,3 +715,127 @@ message_data!{LoopbackDiagnosticRequest, true, 2, 25}
 /// [ABS]: AnyBinaryString
 pub struct LoopbackDiagnosticData(pub AnyBinaryString);
 message_data!{LoopbackDiagnosticData, false, 2, 26}
+
+/// ## S2F27
+/// 
+/// **Initiate Processing Request (IPR)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Request equipment to initiate processing of material at a location in the
+/// machine using a process program.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 3
+///    1. [LOC]
+///    2. [PPID]
+///    3. List - N
+///       - [MID]
+/// 
+/// N is the number of materials.
+/// 
+/// Zero-length [PPID] means no process program is specified and the equipment
+/// determines what action to take.
+/// 
+/// Zero-length N means no [MID] is associated with the material.
+/// 
+/// [LOC]:  LocationCode
+/// [PPID]: ProcessProgramID
+/// [MID]:  MaterialID
+pub struct InitiateProcessingRequest(pub (LocationCode, ProcessProgramID, VecList<MaterialID>));
+message_data!{InitiateProcessingRequest, true, 2, 27}
+
+/// ## S2F28
+/// 
+/// **Initiate Processing Acknowledge (IPA)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Whether or not the request was honored.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - [CMDA]
+/// 
+/// [CMDA]: CommandAcknowledge
+pub struct InitiateProcessingAcknowledge(pub CommandAcknowledge);
+message_data!{InitiateProcessingAcknowledge, false, 2, 28}
+
+/// ## S2F29
+/// 
+/// **Equipment Constant Namelist Request (ECNR)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Retrieve basic information about what equipment constants are available.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - N
+///    - [ECID]
+/// 
+/// N is the number of equipment constants.
+/// 
+/// Zero-length N means to request information about all equipment constants.
+/// 
+/// [ECID]: EquipmentConstantID
+pub struct EquipmentConstantNamelistRequest(pub VecList<EquipmentConstantID>);
+message_data!{EquipmentConstantNamelistRequest, true, 2, 29}
+
+/// ## S2F30
+/// 
+/// **Equipment Constant Namelist (ECN)**
+/// 
+/// - **MULTI-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// List of requested equipment constants.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - N
+///    - List - 6
+///       1. [ECID]
+///       2. [ECNAME]
+///       3. [ECMIN]
+///       4. [ECMAX]
+///       5. [ECDEF]
+///       6. [UNITS]
+/// 
+/// N is the number of equipment constants.
+/// 
+/// Zero-length [ECNAME], [ECMIN], [ECMAX], [ECDEF], and [UNITS] means that the
+/// equipment constant does not exist.
+/// 
+/// [ECID]:   EquipmentConstantID
+/// [ECNAME]: EquipmentConstantName
+/// [ECMIN]:  EquipmentConstantMinimumValue
+/// [ECMAX]:  EquipmentConstantMaximumValue
+/// [ECDEF]:  EquipmentConstantDefaultValue
+/// [UNITS]:  Units
+pub struct EquipmentConstantNamelist(pub VecList<(EquipmentConstantID, EquipmentConstantName, EquipmentConstantMinimumValue, EquipmentConstantMaximumValue, EquipmentConstantDefaultValue, Units)>);
+message_data!{EquipmentConstantNamelist, false, 2, 30}
