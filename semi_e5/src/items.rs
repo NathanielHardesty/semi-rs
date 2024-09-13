@@ -1620,8 +1620,37 @@ pub enum DataAcknowledge {
 }
 singleformat_enum!{DataAcknowledge, Bin}
 
-// TODO: DATAID
-// How to combine ASCII vec and ints which are likely not vec?
+/// ## DATAID
+/// 
+/// **Data ID**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F33, S2F35, S2F39, S2F45, S2F49
+/// - S3F15, S3F17
+/// - S4F19, S4F25
+/// - S6F3, S6F5, S6F7, S6F8, S6F9, S6F11, S6F13, S6F16, S6F18, S6F25, S6F27
+/// - S13F11, S13F13, S13F15
+/// - S14F19, S14F21, S14F23
+/// - S15F1, S15F13, S15F15, S15F21, S15F23, S15F25, S15F27, S15F29, S15F33,
+///   S15F35, S15F39, S15F41, S15F43, S15F45, S15F47, S15F49
+/// - S16F1, S16F3, S16F5, S16F11, S16F15
+/// - S17F1, S17F5, S17F9
+#[derive(Clone, Debug)]
+pub enum DataID {
+  Ascii(Vec<Char>),
+  I1(i8),
+  I2(i16),
+  I4(i32),
+  I8(i64),
+  U1(u8),
+  U2(u16),
+  U4(u32),
+  U8(u64),
+}
+multiformat_ascii!{DataID, I1, I2, I4, I8, U1, U2, U4, U8}
 
 /// ## DATALENGTH
 /// 
@@ -1654,6 +1683,32 @@ pub enum DataLength {
   U8(u64),
 }
 multiformat!{DataLength, I1, I2, I4, I8, U1, U2, U4, U8}
+
+/// ## DRACK
+/// 
+/// **Define Report Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F34
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum DefineReportAcknowledgeCode {
+  Ok = 0,
+  InsufficientSpace = 1,
+  InvalidFormat = 2,
+  ReportAlreadyDefined = 3,
+  VariableDoesNotExist = 4,
+}
+singleformat_enum!{DefineReportAcknowledgeCode, Bin}
 
 /// ## DSPER
 /// 
@@ -2373,6 +2428,31 @@ pub enum ResetCode {
 }
 singleformat_enum!{ResetCode, U1}
 
+/// ## RPTID
+/// 
+/// **Report ID**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F33, S2F35
+/// - S6F11, S6F13, S6F16, S6F18, S6F19, S6F21, S6F27, S6F30
+/// - S17F1, S17F2, S17F3, S17F4, S17F5, S17F9, S17F11, S17F12
+#[derive(Clone, Debug)]
+pub enum ReportID {
+  Ascii(Vec<Char>),
+  I1(i8),
+  I2(i16),
+  I4(i32),
+  I8(i64),
+  U1(u8),
+  U2(u16),
+  U4(u32),
+  U8(u64),
+}
+multiformat_ascii!{ReportID, I1, I2, I4, I8, U1, U2, U4, U8}
+
 /// ## SFCD
 /// 
 /// Status form code, 1 byte.
@@ -2611,6 +2691,29 @@ pub enum TraceInitializeAcknowledgeCode {
 }
 singleformat_enum!{TraceInitializeAcknowledgeCode, Bin}
 
+/// ## TIACK
+/// 
+/// **Time Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// 1 Byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - S2F32
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum TimeAcknowledgeCode {
+  Ok = 0,
+  ErrorNotDone = 1,
+}
+singleformat_enum!{TimeAcknowledgeCode, Bin}
+
 /// ## TIME
 /// 
 /// Time of day.
@@ -2777,9 +2880,9 @@ singleformat_vec!{Units, Ascii}
 
 /// ## VID
 /// 
-/// Variable ID
+/// **Variable ID**
 /// 
-/// -------------------------------------------------------------------------
+/// ---------------------------------------------------------------------------
 /// 
 /// #### Used By
 /// 

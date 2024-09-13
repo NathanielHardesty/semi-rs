@@ -839,3 +839,108 @@ message_data!{EquipmentConstantNamelistRequest, true, 2, 29}
 /// [UNITS]:  Units
 pub struct EquipmentConstantNamelist(pub VecList<(EquipmentConstantID, EquipmentConstantName, EquipmentConstantMinimumValue, EquipmentConstantMaximumValue, EquipmentConstantDefaultValue, Units)>);
 message_data!{EquipmentConstantNamelist, false, 2, 30}
+
+/// ## S2F31
+/// 
+/// **Date and Time Set Request (DTS)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Synchronize equipment time with host time base.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - [TIME]
+/// 
+/// [TIME]: Time
+pub struct DateTimeSetRequest(pub Time);
+message_data!{DateTimeSetRequest, true, 2, 31}
+
+/// ## S2F32
+/// 
+/// **Date and Time Set Acknowledge (DTA)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Acknowledge receipt of time and date.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - [TIACK]
+/// 
+/// [TIACK]: TimeAcknowledgeCode
+pub struct DateTimeSetAcknowledge(pub TimeAcknowledgeCode);
+message_data!{DateTimeSetAcknowledge, false, 2, 32}
+
+/// ## S2F33
+/// 
+/// **Define Report (DR)**
+/// 
+/// - **MULTI-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Define a group of reports for the equipment.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [DATAID]
+///    2. List - M
+///       - List - 2
+///          1. [RPTID]
+///          2. List - N
+///             - [VID]
+/// 
+/// M is the number of reports to be defined.
+/// 
+/// Zero-length M means to delete all report definitions and associated links.
+/// 
+/// N is the number of [VID]s in a report.
+/// 
+/// Zero-length N means to delete the [RPTID] and any [CEID]s linked to it.
+/// 
+/// [DATAID]: DataID
+/// [RPTID]:  ReportID
+/// [VID]:    VariableID
+pub struct DefineReport(pub (DataID, VecList<(ReportID, VecList<VariableID>)>));
+message_data!{DefineReport, true, 2, 33}
+
+/// ## S2F44
+/// 
+/// **Define Report Acknowledge (DRA)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Acknowledge, or error if any error condition is detected. In the latter
+/// case, the entire message is rejected, partial changes are not allowed.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - [DRACK]
+/// 
+/// [DRACK]: DefineReportAcknowledgeCode
+pub struct DefineReportAcknowledge(pub DefineReportAcknowledgeCode);
+message_data!{DefineReportAcknowledge, false, 2, 34}
