@@ -36,12 +36,6 @@
 //! 
 //! This functionality continues in [Stream 17].
 //! 
-//! ---------------------------------------------------------------------------
-//! 
-//! ## TO BE DONE
-//! 
-//! - Fill out stream contents
-//! 
 //! [Message]:   crate::Message
 //! [Stream 4]:  crate::messages::s4
 //! [Stream 8]:  crate::messages::s8
@@ -404,7 +398,7 @@ message_data!{EquipmentConstantRequest, true, 2, 13}
 /// 
 /// [ECID]: EquipmentConstantID
 /// [ECV]:  EquipmentConstantValue
-pub struct EquipmentConstantData(pub VecList<EquipmentConstantValue>);
+pub struct EquipmentConstantData(pub VecList<OptionItem<EquipmentConstantValue>>);
 message_data!{EquipmentConstantData, false, 2, 14}
 
 /// ## S2F15
@@ -919,10 +913,11 @@ message_data!{DateTimeSetAcknowledge, false, 2, 32}
 /// [DATAID]: DataID
 /// [RPTID]:  ReportID
 /// [VID]:    VariableID
+/// [CEID]:   CollectionEventID
 pub struct DefineReport(pub (DataID, VecList<(ReportID, VecList<VariableID>)>));
 message_data!{DefineReport, true, 2, 33}
 
-/// ## S2F44
+/// ## S2F34
 /// 
 /// **Define Report Acknowledge (DRA)**
 /// 
@@ -944,3 +939,551 @@ message_data!{DefineReport, true, 2, 33}
 /// [DRACK]: DefineReportAcknowledgeCode
 pub struct DefineReportAcknowledge(pub DefineReportAcknowledgeCode);
 message_data!{DefineReportAcknowledge, false, 2, 34}
+
+/// ## S2F35
+/// 
+/// **Link Event Report (LER)**
+/// 
+/// - **MULTI-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Link reports to events.
+/// 
+/// Linked reports will be disabled by default.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [DATAID]
+///    2. List - M
+///       - List - 2
+///          1. [CEID]
+///          2. List - N
+///             - [RPTID]
+/// 
+/// M is the number of collection events.
+/// 
+/// N is the number of reports to link to a collection event.
+/// 
+/// Zero-length N means to delete all reports associated with a collection
+/// event.
+/// 
+/// [DATAID]: DataID
+/// [CEID]:   CollectionEventID
+/// [RPTID]:  ReportID
+pub struct LinkEventReport(pub (DataID, VecList<(CollectionEventID, VecList<ReportID>)>));
+message_data!{LinkEventReport, true, 2, 35}
+
+/// ## S2F36
+/// 
+/// **Link Event Report Acknowledge (LERA)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Acknowledge, or error if any error condition is detected. In the latter
+/// case, the entire message is rejected, partial changes are not allowed.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - [LRACK]
+/// 
+/// [LRACK]: LinkReportAcknowledgeCode
+pub struct LinkEventReportAcknowledge(pub LinkReportAcknowledgeCode);
+message_data!{LinkEventReportAcknowledge, false, 2, 36}
+
+/// ## S2F37
+/// 
+/// **Enable/Disable Event Report (EDER)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Enable or disable reporting for collection events.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [CEED]
+///    2. List - N
+///       - [CEID]
+/// 
+/// N is the number of collection events.
+/// 
+/// Zero-length N means to enable or disable all collection events.
+/// 
+/// [CEED]: CollectionEventEnableDisable
+/// [CEID]: CollectionEventID
+pub struct EnableDisableEventReport(pub (CollectionEventEnableDisable, VecList<CollectionEventID>));
+message_data!{EnableDisableEventReport, true, 2, 37}
+
+/// ## S2F38
+/// 
+/// **Enable/Disable Event Report Acknowledge**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Acknowledge, or error if any error condition is detected. In the latter
+/// case, the entire message is rejected, partial changes are not allowed.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - [ERACK]
+/// 
+/// [ERACK]: EnableDisableEventReportAcknowledgeCode
+pub struct EnableDisableEventReportAcknowledge(pub EnableDisableEventReportAcknowledgeCode);
+message_data!{EnableDisableEventReportAcknowledge, false, 2, 38}
+
+/// ## S2F39
+/// 
+/// **Multi-Block Inquire (DMBI)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Establish that sending a multi-block message is allowed prior to sending
+/// [S2F23], [S2F33], [S2F35], [S2F45], or [S2F49].
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [DATAID]
+///    2. [DATALENGTH]
+/// 
+/// [DATAID]:     DataID
+/// [DATALENGTH]: DataLength
+/// [S2F23]:      TraceInitializeSend
+/// [S2F33]:      DefineReport
+/// [S2F35]:      LinkEventReport
+/// [S2F45]:      DefineVariableLimitAttributes
+/// [S2F49]:      EnhancedRemoteCommand
+pub struct MultiBlockInquire(pub (DataID, DataLength));
+message_data!{MultiBlockInquire, true, 2, 39}
+
+/// ## S2F40
+/// 
+/// **Multi-Block Grant (DMBG)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Grant permission to send a multi-block message.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - [GRANT]
+/// 
+/// [GRANT]: Grant
+pub struct MultiBlockGrant(pub Grant);
+message_data!{MultiBlockGrant, false, 2, 40}
+
+/// ## S2F41
+/// 
+/// **Host Command Send (HCS)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Request equipment to perform the specified remote command with the
+/// associated parameters.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [RCMD]
+///    2. List - N
+///       - List - 2
+///          1. [CPNAME]
+///          2. [CPVAL]
+/// 
+/// [RCMD]:   RemoteCommand
+/// [CPNAME]: CommandParameterName
+/// [CPVAL]:  CommandParameterValue
+pub struct HostCommandSend(pub (RemoteCommand, VecList<(CommandParameterName, CommandParameterValue)>));
+message_data!{HostCommandSend, true, 2, 41}
+
+/// ## S2F42
+/// 
+/// **Host Command Acknowledge (HCA)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Acknowledge, or error if the command cannot be accepted. If the command is
+/// not accepted due to one or more invalid parameters, a list of invalid
+/// parameters and the associated reasons for rejection is provided.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [HCACK]
+///    2. List - N
+///       - List - 2
+///          1. [CPNAME]
+///          2. [CPACK]
+/// 
+/// [HCACK]:  HostCommandAcknowledgeCode
+/// [CPNAME]: CommandParameterName
+/// [CPACK]:  CommandParameterAcknowledgeCode
+pub struct HostCommandAcknowledge(pub (HostCommandAcknowledgeCode, VecList<(CommandParameterName, CommandParameterAcknowledgeCode)>));
+message_data!{HostCommandAcknowledge, false, 2, 42}
+
+/// ## S2F43
+/// 
+/// **Reset Spooling Streams and Functions (RSSF)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Select specific streams and functions to be spooled whenever spooling is
+/// active.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - M
+///    - List - 2
+///       1. [STRID]
+///       2. List - N
+///          - [FCNID]
+/// 
+/// M is the number of streams.
+/// 
+/// Zero-length M turns off spooling for all streams and functions.
+/// 
+/// N is the number of functions in a stream.
+/// 
+/// Zero-length N turns on spooling for all functions in the stream.
+/// 
+/// Turning off spooling for all functions for a specific stream is achieved by
+/// omitting reference to the stream from this message.
+/// 
+/// Spooling for Stream 1 is not allowed.
+/// 
+/// Equipment must allow the host to spool all primary messages for a stream.
+/// 
+/// A defined list of functions for a stream in this message will replace any
+/// previously selected functions.
+/// 
+/// [STRID]: StreamID
+/// [FCNID]: FunctionID
+pub struct ResetSpoolingStreamsAndFunctions(pub VecList<(StreamID, VecList<FunctionID>)>);
+message_data!{ResetSpoolingStreamsAndFunctions, true, 2, 43}
+
+/// ## S2F44
+/// 
+/// **Reset Spooling Acknowledge (RSA)**
+/// 
+/// - **MULTI-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Acknowledge or error.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [RSPACK]
+///    2. List - M
+///       - List - 3
+///          1. [STRID]
+///          2. [STRACK]
+///          3. List - N
+///             - [FCNID]
+/// 
+/// M is the number of streams in error.
+/// 
+/// Zero-length M means no streams in error.
+/// 
+/// N is the number of functions in error in a stream.
+/// 
+/// Zero-length N means no functions in error for stream.
+/// 
+/// [RSPACK]: ResetSpoolingAcknowledgeCode
+/// [STRID]:  StreamID
+/// [STRACK]: SpoolStreamAcknowledgeCode
+/// [FCNID]:  FunctionID
+pub struct ResetSpoolingAcknowledge(pub (ResetSpoolingAcknowledgeCode, VecList<(StreamID, SpoolStreamAcknowledgeCode, VecList<FunctionID>)>));
+message_data!{ResetSpoolingAcknowledge, false, 2, 44}
+
+/// ## S2F45
+/// 
+/// **Define Variable Limit Attributes (DVLA)**
+/// 
+/// - **MULTI-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [DATAID]
+///    2. List - M
+///       - List - 2
+///          1. [VID]
+///          2. List - N
+///             - List - 2
+///                1. [LIMITID]
+///                2. List - 0 or 2
+///                   1. [UPPERDB]
+///                   2. [LOWERDB]
+/// 
+/// M is the number of variables whose limits are being defined.
+/// 
+/// Zero-length M means to set all limit values for all monitored [VID]s to
+/// undefined.
+/// 
+/// N is the number of limits being defined or changed.
+/// 
+/// Zero-length N means to set all limit values for that [VID] to undefined.
+/// 
+/// Zero-length list after [LIMITID] means to set that limit to undefined.
+/// 
+/// [DATAID]:  DataID
+/// [VID]:     VariableID
+/// [LIMITID]: LimitID
+/// [UPPERDB]: UpperDeadband
+/// [LOWERDB]: LowerDeadband
+pub struct DefineVariableLimitAttributes(pub (DataID, VecList<(VariableID, VecList<(LimitID, OptionItem<(UpperDeadband, LowerDeadband)>)>)>));
+message_data!{DefineVariableLimitAttributes, true, 2, 45}
+
+/// ## S2F46
+/// 
+/// **Variable Limit Attribute Acknowledge (VLAA)**
+/// 
+/// - **MULTI-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Acknowledge definition of variable limit attributes. If the command is not
+/// accepted due to one or more invalid parameters, then a list of invalid
+/// parameters is returned containing the variable limit attribute and reason
+/// for rejection. In the case that the command is rejected, the entire message
+/// is rejected, partial changes are not allowed.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [VLAACK]
+///    2. List - M
+///       - List - 3
+///          1. [VID]
+///          2. [LVACK]
+///          3. List - 0 or 2
+///             1. [LIMITID]
+///             2. [LIMITACK]
+/// 
+/// M is the number of invalid parameters.
+/// 
+/// Zero-length M means no invalid variable limit attributes.
+/// 
+/// Zero-length list after [LVACK] means no invalid limit values for that
+/// variable.
+/// 
+/// [VLAACK]:   VariableLimitAttributeAcknowledgeCode
+/// [VID]:      VariableID
+/// [LVACK]:    VariableLimitDefinitonAcknowledgeCode
+/// [LIMITID]:  LimitID
+/// [LIMITACK]: VariableLimitAttributeSetAcknowledgeCode
+pub struct VariableLimitAttributeAcknowledge(pub (VariableLimitAttributeAcknowledgeCode, VecList<(VariableID, VariableLimitDefinitonAcknowledgeCode, OptionItem<(LimitID, VariableLimitAttributeSetAcknowledgeCode)>)>));
+message_data!{VariableLimitAttributeAcknowledge, false, 2, 46}
+
+/// ## S2F47
+/// 
+/// **Variable Limit Attribute Request (VLAR)**
+/// 
+/// - **SINGLE-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Query current variable limit attribute definitions.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - N
+///    - [VID]
+/// 
+/// N is the number of variables being requested.
+/// 
+/// Zero-length N means to report all variables that can have variable limit
+/// attributes.
+/// 
+/// [VID]: VariableID
+pub struct VariableLimitAttributeRequest(pub VecList<VariableID>);
+message_data!{VariableLimitAttributeRequest, true, 2, 47}
+
+/// ## S2F48
+/// 
+/// **Variable Limit Attribute Send (VLAS)**
+/// 
+/// - **MULTI-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Send values of requested variable limit attribute definitions.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - M
+///    - List - 2
+///       1. [VID]
+///       2. List - 0 or 4
+///          1. [UNITS]
+///          2. [LIMITMIN]
+///          3. [LIMITMAX]
+///          4. List - N
+///             - List - 3
+///                1. [LIMITID]
+///                2. [UPPERDB]
+///                3. [LOWERDB]
+/// 
+/// M is the number of requested variables.
+/// 
+/// N is the number of limits defined for a variable.
+/// 
+/// Zero-length N is the means no limits are defined for the variable.
+/// 
+/// Zero-length list after [VID] means limits are not supported.
+/// 
+/// [VID]:      VariableID
+/// [UNITS]:    Units
+/// [LIMITMIN]: LimitMinimum
+/// [LIMITMAX]: LimitMaximum
+/// [LIMITID]:  LimitID
+/// [UPPERDB]:  UpperDeadband
+/// [LOWERDB]:  LowerDeadband
+pub struct VariableLimitAttributeSend(pub VecList<(VariableID, OptionItem<(Units, LimitMinimum, LimitMaximum, VecList<(LimitID, UpperDeadband, LowerDeadband)>)>)>);
+message_data!{VariableLimitAttributeSend, false, 2, 48}
+
+/// ## S2F49
+/// 
+/// **Enhanced Remote Command**
+/// 
+/// - **MULTI-BLOCK**
+/// - **HOST -> EQUIPMENT**
+/// - **REPLY REQUIRED**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Request an object to perform the specified remote command with its
+/// associated parameters.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 4
+///    1. [DATAID]
+///    2. [OBJSPEC]
+///    3. [RCMD]
+///    4. List - N
+///       - List - 2
+///          1. [CPNAME]
+///          2. [CEPVAL]
+/// 
+/// N is the number of parameters being passed.
+/// 
+/// [DATAID]:  DataID
+/// [OBJSPEC]: ObjectSpecifier
+/// [RCMD]:    RemoteCommand
+/// [CPNAME]:  CommandParameterName
+/// [CEPVAL]:  CommandEnhancedParameterValue
+pub struct EnhancedRemoteCommand(pub (DataID, ObjectSpecifier, RemoteCommand, VecList<(CommandParameterName, CommandEnhancedParameterValue)>));
+message_data!{EnhancedRemoteCommand, true, 2, 49}
+
+/// ## S2F50
+/// 
+/// **Enhanced Remote Command Acknowledge**
+/// 
+/// - **MULTI-BLOCK**
+/// - **HOST <- EQUIPMENT**
+/// - **REPLY FORBIDDEN**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// Acknowledge enhanced remote command or report any errors. If the command is
+/// not accepted due to one or more invalid parameters, then a list of invalid
+/// parameters will be returned containing the parameter name and reason for
+/// being invalid.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Structure
+/// 
+/// - List - 2
+///    1. [HCACK]
+///    2. List - N
+///       - List - 2
+///          1. [CPNAME]
+///          2. [CEPACK]
+/// 
+/// N is the number of parameters in error.
+/// 
+/// [HCACK]:  HostCommandAcknowledgeCode
+/// [CPNAME]: CommandParameterName
+/// [CEPACK]: CommandEnhancedParameterAcknowledgeCode
+pub struct EnhancedRemoteCommandAcknowledge(pub (HostCommandAcknowledgeCode, VecList<(CommandParameterName, CommandParameterAcknowledgeCode)>));
+message_data!{EnhancedRemoteCommandAcknowledge, false, 2, 50}

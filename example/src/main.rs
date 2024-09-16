@@ -151,26 +151,45 @@ fn test_equipment() {
           }
         },
         (true, 2, 13) => {
-          rx_client.data(
-            id,
-            Message {
-              w: false,
-              stream: 2,
-              function: 14,
-              text: Some(Item::List(vec![])),
-            }
-          ).join().unwrap().unwrap();
+          match s2::EquipmentConstantRequest::try_from(message) {
+            Ok(s2f13) => {
+              let mut vec = vec![];
+              for _ecid in s2f13.0.0 {
+                vec.push(OptionItem::<EquipmentConstantValue>(None));
+              }
+              rx_client.data(
+                id,
+                s2::EquipmentConstantData(VecList(vec)).into()
+              ).join().unwrap().unwrap();
+            },
+            Err(_) => {
+              rx_client.data(id, s2::Abort.into()).join().unwrap().unwrap();
+            },
+          }
         },
         (true, 2, 29) => {
-          rx_client.data(
-            id,
-            Message {
-              w: false,
-              stream: 2,
-              function: 30,
-              text: Some(Item::List(vec![])),
+          match s2::EquipmentConstantNamelistRequest::try_from(message) {
+            Ok(s2f29) => {
+              let mut vec = vec![];
+              for ecid in s2f29.0.0 {
+                vec.push((
+                  ecid,
+                  EquipmentConstantName(vec![]),
+                  EquipmentConstantMinimumValue::Ascii(vec![]),
+                  EquipmentConstantMaximumValue::Ascii(vec![]),
+                  EquipmentConstantDefaultValue::Ascii(vec![]),
+                  Units(vec![])
+                ))
+              }
+              rx_client.data(
+                id,
+                s2::EquipmentConstantNamelist(VecList(vec)).into()
+              ).join().unwrap().unwrap();
+            },
+            Err(_) => {
+              rx_client.data(id, s2::Abort.into()).join().unwrap().unwrap();
             }
-          ).join().unwrap().unwrap();
+          }
         },
         (true, 5, 5) => {
           rx_client.data(

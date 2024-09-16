@@ -315,7 +315,7 @@ message_headeronly!{MaterialTransferStatusRequest, true, 1, 9}
 /// 
 /// [TSIP]: TransferStatusInputPort
 /// [TSOP]: TransferStatusOutputPort
-pub struct MaterialTransferStatusData(pub OptionList<(Vec<TransferStatusInputPort>, Vec<TransferStatusOutputPort>)>);
+pub struct MaterialTransferStatusData(pub OptionItem<(Vec<TransferStatusInputPort>, Vec<TransferStatusOutputPort>)>);
 message_data!{MaterialTransferStatusData, false, 1, 10}
 
 /// ## S1F11

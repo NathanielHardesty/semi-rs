@@ -48,7 +48,7 @@
 //! 
 //! - Implement "Localized" strings.
 //! - Finish adding items.
-//! - Add messages to Streams 2 through 21.
+//! - Add messages to Streams 3 through 21.
 //! 
 //! ---------------------------------------------------------------------------
 //! 
@@ -77,6 +77,7 @@
 #![feature(ascii_char_variants)]
 #![allow(clippy::unusual_byte_groupings)]
 #![allow(clippy::collapsible_match)]
+#![allow(clippy::type_complexity)]
 
 pub mod format;
 pub mod items;

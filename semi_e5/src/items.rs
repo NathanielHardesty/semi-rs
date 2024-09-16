@@ -35,17 +35,17 @@
 //! As well as the list of specific [Item]s as defined in **Table 3 - Data Item
 //! Dictionary**, certain shorthands for varying usage of [List]s are provided.
 //! 
-//! - [Optional List]: used to represent a [List] with either a set number of
-//!   elements, or acceptably zero elements in certain cases.
+//! - [Optional Item]: used to represent an [Item] which may optionally take
+//!   the form of a [List] with zero elements.
 //! - [Vectorized List]: used to represent a [List] with a variable number of
 //!   elements of homogeneous structure.
 //! - Rust's Native Unit Type (): Used to represent a [List] with zero
 //!   elements.
 //! - Rust's Native Tuple Types (A, B, ...): Used to represent a [List] with a
 //!   set number of elements of heterogeneous structure.
-//!    - Currently, only Tuples of length up to 5 are supported.
+//!    - Currently, only Tuples of length up to 6 are supported.
 //! 
-//! [Optional List]:   OptionList
+//! [Optional Item]:   OptionItem
 //! [Vectorized List]: VecList
 //! [Item]:            crate::Item
 //! [Format]:          crate::format
@@ -56,34 +56,34 @@ use crate::Error::{self, *};
 use std::ascii::Char;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-/// ## OPTIONAL LIST
+/// ## OPTIONAL ITEM
 /// 
-/// Represents a List with either a set number of elements, or acceptably zero
-/// elements in certain cases. The intent is that the type T will be a tuple
-/// representing a heterogenous list of elements.
-pub struct OptionList<T>(pub Option<T>);
+/// Represents an [Item] which may alternatively take the form of a [List] with
+/// zero elements.
+/// 
+/// [Item]: crate::Item
+/// [List]: crate::Item::List
+pub struct OptionItem<T>(pub Option<T>);
 
-/// ## ITEM -> OPTIONAL LIST
-impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for OptionList<A> {
+/// ## ITEM -> OPTIONAL ITEM
+impl<A: TryFrom<Item, Error = Error> + Sized> TryFrom<Item> for OptionItem<A> {
   type Error = Error;
 
   fn try_from(item: Item) -> Result<Self, Self::Error> {
-    match item {
-      Item::List(list) => {
-        if list.is_empty() {
-          Ok(Self(None))
-        } else {
-          Ok(Self(Some(Item::List(list).try_into()?)))
-        }
-      },
-      _ => Err(Error::WrongFormat),
+    if let Item::List(list) = item {
+      if list.is_empty() {
+        return Ok(Self(None));
+      } else {
+        return Ok(Self(Some(Item::List(list).try_into()?)));
+      }
     }
+    Ok(Self(Some(item.try_into()?)))
   }
 }
 
-/// ## OPTIONAL LIST -> ITEM
-impl<A: Into<Item>> From<OptionList<A>> for Item {
-  fn from(option_list: OptionList<A>) -> Self {
+/// ## OPTIONAL ITEM -> ITEM
+impl<A: Into<Item>> From<OptionItem<A>> for Item {
+  fn from(option_list: OptionItem<A>) -> Self {
     match option_list.0 {
       Some(item) => item.into(),
       None => Item::List(vec![]),
@@ -738,7 +738,10 @@ macro_rules! multiformat_vec {
 /// 
 /// #### Used By
 /// 
-/// - S2F25, S2F26
+/// - [S2F25], [S2F26]
+/// 
+/// [S2F25]: crate::messages::s2::LoopbackDiagnosticRequest
+/// [S2F26]: crate::messages::s2::LoopbackDiagnosticData
 #[derive(Clone, Debug)]
 pub struct AnyBinaryString(pub Vec<u8>);
 singleformat_vec!{AnyBinaryString, Bin}
@@ -1252,7 +1255,10 @@ multiformat_vec!{CommandCode, Ascii, I2, I4, U2, U4}
 /// 
 /// #### Used By
 /// 
-/// - S2F37, S17F5
+/// - [S2F37]
+/// - S17F5
+/// 
+/// [S2F37]: crate::messages::s2::EnableDisableEventReport
 #[derive(Clone, Debug)]
 pub struct CollectionEventEnableDisable(pub bool);
 singleformat!{CollectionEventEnableDisable, Bool}
@@ -1266,12 +1272,14 @@ singleformat!{CollectionEventEnableDisable, Bool}
 /// #### Used By
 /// 
 /// - [S1F23], [S1F24]
-/// - S2F35, S2F37
+/// - [S2F35], [S2F37]
 /// - S6F3, S6F8, S6F9, S6F11, S6F13, S6F15, S6F16, S6F17, S6F18
 /// - S17F5, S17F9, S17F10, S17F11, S17F12
 /// 
 /// [S1F23]: crate::messages::s1::CollectionEventNamelistRequest
 /// [S1F24]: crate::messages::s1::CollectionEventNamelist
+/// [S2F35]: crate::messages::s2::LinkEventReport
+/// [S2F37]: crate::messages::s2::EnableDisableEventReport
 pub enum CollectionEventID {
   Ascii(Vec<Char>),
   I1(i8),
@@ -1300,11 +1308,82 @@ multiformat_ascii!{CollectionEventID, I1, I2, I4, I8, U1, U2, U4, U8}
 pub struct CollectionEventName(pub Vec<Char>);
 singleformat_vec!{CollectionEventName, Ascii}
 
-// TODO: CEPACK
-// How to handle this somewhat complicated seeming list form of the variable?
+/// ## CEPACK
+/// 
+/// **Command Enhanced Paramater Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single-byte enumerated value.
+/// 
+/// Alternatively, if the [CEPVAL] of concern is of a list format, this item
+/// will also be of a list format.
+/// 
+/// TODO: Implement list format.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F50]
+/// 
+/// [CEPVAL]: CommandEnhancedParameterValue
+/// [S2F50]:  crate::messages::s2::EnhancedRemoteCommandAcknowledge
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum CommandEnhancedParameterAcknowledgeCode {
+  Ok = 0,
+  ParameterNameDoesNotExist = 1,
+  IllegalValue = 2,
+  IllegalFormat = 3,
+  ParameterNameNotValidAsUsed = 4,
+}
+singleformat_enum!{CommandEnhancedParameterAcknowledgeCode, U1}
 
-// TODO: CEPVAL
-// Just seems like a lot of work right now, should probably be done alongside CEPACK.
+/// ## CEPVAL
+/// 
+/// **Command Enhanced Parameter Value**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Allowed forms:
+/// 
+/// 1. A single non-list value.
+/// 2. A list of single items of identical format.
+/// 3. A list of items of the form of a list of two items containing another
+///    name-value pair.
+/// 
+/// TODO: Enforce format.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F49]
+/// 
+/// [S2F49]: crate::messages::s2::EnhancedRemoteCommand
+pub enum CommandEnhancedParameterValue {
+  List(Vec<Item>),
+  Bin(Vec<u8>),
+  Bool(Vec<bool>),
+  Ascii(Vec<Char>),
+  Jis8(String),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+  F4(Vec<f32>),
+  F8(Vec<f64>),
+}
+multiformat_vec!{CommandEnhancedParameterValue, List, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
 
 /// ## CKPNT
 /// 
@@ -1329,7 +1408,10 @@ singleformat!{Checkpoint, U4}
 /// 
 /// #### Used By
 /// 
-/// - S2F22, S2F28
+/// - [S2F22], [S2F28]
+/// 
+/// [S2F22]: crate::messages::s2::RemoteCommandAcknowledge
+/// [S2F28]: crate::messages::s2::InitiateProcessingAcknowledge
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum CommandAcknowledge {
@@ -1507,10 +1589,12 @@ pub type ConditionList = VecList<Condition>;
 /// 
 /// #### Used By
 /// 
-/// - S2F42
+/// - [S2F42]
+/// 
+/// [S2F42]: crate::messages::s2::HostCommandAcknowledge
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
-pub enum CommandParamaterAcknowledge {
+pub enum CommandParameterAcknowledgeCode {
   /// CPNAME does not exist.
   ParameterNameDoesNotExist = 1,
 
@@ -1520,13 +1604,67 @@ pub enum CommandParamaterAcknowledge {
   /// Illegal format specified for CPVAL.
   IllegalFormat = 3,
 }
-singleformat_enum!{CommandParamaterAcknowledge, Bin}
+singleformat_enum!{CommandParameterAcknowledgeCode, Bin}
 
-// TODO: CPNAME
-// How to combine ASCII vec and ints which are likely not vec?
+/// ## CPNAME
+/// 
+/// **Command Parameter Name**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F41], [S2F42], [S2F49], [S2F50]
+/// - S4F21, S4F29
+/// - S16F5, S16F27
+/// 
+/// [S2F41]: crate::messages::s2::HostCommandSend
+/// [S2F42]: crate::messages::s2::HostCommandAcknowledge
+/// [S2F49]: crate::messages::s2::EnhancedRemoteCommand
+/// [S2F50]: crate::messages::s2::EnhancedRemoteCommandAcknowledge
+pub enum CommandParameterName {
+  Ascii(Vec<Char>),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+}
+multiformat_vec!{CommandParameterName, Ascii, I1, I2, I4, I8, U1, U2, U4, U8}
 
-// TODO: CPVAL
-// Just seems like a lot of work right now, should probably be done alongside CPNAME.
+/// ## CPVAL
+/// 
+/// **Command Parameter Value**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F41], [S2F49]
+/// - S4F21, S4F29
+/// - S16F5, S16F27
+/// - S18F13
+/// 
+/// [S2F41]: crate::messages::s2::HostCommandSend
+/// [S2F49]: crate::messages::s2::EnhancedRemoteCommand
+pub enum CommandParameterValue {
+  Bin(Vec<u8>),
+  Bool(Vec<bool>),
+  Ascii(Vec<Char>),
+  Jis8(String),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+}
+multiformat_vec!{CommandParameterValue, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1, U2, U4, U8}
 
 /// ## CSAACK
 /// 
@@ -1536,7 +1674,9 @@ singleformat_enum!{CommandParamaterAcknowledge, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F8
+/// - [S2F8]
+/// 
+/// [S2F8]: crate::messages::s2::ServiceProgramRunAcknowledge
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum ServiceAcknowledgeCode {
@@ -1628,7 +1768,7 @@ singleformat_enum!{DataAcknowledge, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F33, S2F35, S2F39, S2F45, S2F49
+/// - [S2F33], [S2F35], [S2F39], [S2F45], [S2F49]
 /// - S3F15, S3F17
 /// - S4F19, S4F25
 /// - S6F3, S6F5, S6F7, S6F8, S6F9, S6F11, S6F13, S6F16, S6F18, S6F25, S6F27
@@ -1638,6 +1778,12 @@ singleformat_enum!{DataAcknowledge, Bin}
 ///   S15F35, S15F39, S15F41, S15F43, S15F45, S15F47, S15F49
 /// - S16F1, S16F3, S16F5, S16F11, S16F15
 /// - S17F1, S17F5, S17F9
+/// 
+/// [S2F33]: crate::messages::s2::DefineReport
+/// [S2F35]: crate::messages::s2::LinkEventReport
+/// [S2F39]: crate::messages::s2::MultiBlockInquire
+/// [S2F45]: crate::messages::s2::DefineVariableLimitAttributes
+/// [S2F49]: crate::messages::s2::EnhancedRemoteCommand
 #[derive(Clone, Debug)]
 pub enum DataID {
   Ascii(Vec<Char>),
@@ -1662,7 +1808,7 @@ multiformat_ascii!{DataID, I1, I2, I4, I8, U1, U2, U4, U8}
 /// 
 /// #### Used By
 /// 
-/// - S2F39
+/// - [S2F39]
 /// - S3F15, S3F29, S3F31
 /// - S4F25
 /// - S6F5
@@ -1671,6 +1817,8 @@ multiformat_ascii!{DataID, I1, I2, I4, I8, U1, U2, U4, U8}
 /// - S16F1
 /// - S18F5, S18F7
 /// - S19F19
+/// 
+/// [S2F39]: crate::messages::s2::MultiBlockInquire
 #[derive(Clone, Debug)]
 pub enum DataLength {
   I1(i8),
@@ -1698,7 +1846,9 @@ multiformat!{DataLength, I1, I2, I4, I8, U1, U2, U4, U8}
 /// 
 /// #### Used By
 /// 
-/// - S2F34
+/// - [S2F34]
+/// 
+/// [S2F34]: crate::messages::s2::DefineReportAcknowledge
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum DefineReportAcknowledgeCode {
@@ -1741,7 +1891,9 @@ singleformat_enum!{DefineReportAcknowledgeCode, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F23
+/// - [S2F23]
+/// 
+/// [S2F23]: crate::messages::s2::TraceInitializeSend
 #[derive(Clone, Debug)]
 pub struct DataSamplePeriod(pub Vec<Char>);
 singleformat_vec!{DataSamplePeriod, Ascii}
@@ -1769,7 +1921,9 @@ singleformat_vec!{DataVariableValueName, Ascii}
 /// 
 /// #### Used By
 /// 
-/// - S2F16
+/// - [S2F16]
+/// 
+/// [S2F16]: crate::messages::s2::NewEquipmentConstantAcknowledge
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum EquipmentAcknowledgeCode {
@@ -1788,7 +1942,9 @@ singleformat_enum!{EquipmentAcknowledgeCode, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F30
+/// - [S2F30]
+/// 
+/// [S2F30]: crate::messages::s2::EquipmentConstantNamelist
 pub enum EquipmentConstantDefaultValue {
   Bin(Vec<u8>),
   Bool(Vec<bool>),
@@ -1815,7 +1971,12 @@ multiformat_vec!{EquipmentConstantDefaultValue, Bin, Bool, Ascii, Jis8, I1, I2, 
 /// 
 /// #### Used By
 /// 
-/// - S2F13, S2F15, S2F29, S2F30
+/// - [S2F13], [S2F15], [S2F29], [S2F30]
+/// 
+/// [S2F13]: crate::messages::s2::EquipmentConstantRequest
+/// [S2F15]: crate::messages::s2::NewEquipmentConstantSend
+/// [S2F29]: crate::messages::s2::EquipmentConstantNamelistRequest
+/// [S2F30]: crate::messages::s2::EquipmentConstantNamelist
 #[derive(Clone, Debug)]
 pub enum EquipmentConstantID {
   Ascii(Vec<Char>),
@@ -1838,7 +1999,9 @@ multiformat_ascii!{EquipmentConstantID, I1, I2, I4, I8, U1, U2, U4, U8}
 /// 
 /// #### Used By
 /// 
-/// - S2F30
+/// - [S2F30]
+/// 
+/// [S2F30]: crate::messages::s2::EquipmentConstantNamelist
 pub enum EquipmentConstantMaximumValue {
   Bin(Vec<u8>),
   Bool(Vec<bool>),
@@ -1865,7 +2028,9 @@ multiformat_vec!{EquipmentConstantMaximumValue, Bin, Bool, Ascii, Jis8, I1, I2, 
 /// 
 /// #### Used By
 /// 
-/// - S2F30
+/// - [S2F30]
+/// 
+/// [S2F30]: crate::messages::s2::EquipmentConstantNamelist
 pub enum EquipmentConstantMinimumValue {
   Bin(Vec<u8>),
   Bool(Vec<bool>),
@@ -1892,7 +2057,9 @@ multiformat_vec!{EquipmentConstantMinimumValue, Bin, Bool, Ascii, Jis8, I1, I2, 
 /// 
 /// #### Used By
 /// 
-/// - S2F30
+/// - [S2F30]
+/// 
+/// [S2F30]: crate::messages::s2::EquipmentConstantNamelist
 pub struct EquipmentConstantName(pub Vec<Char>);
 singleformat_vec!{EquipmentConstantName, Ascii}
 
@@ -1904,7 +2071,10 @@ singleformat_vec!{EquipmentConstantName, Ascii}
 /// 
 /// #### Used By
 /// 
-/// - S2F14, S2F15
+/// - [S2F14], [S2F15]
+/// 
+/// [S2F14]: crate::messages::s2::EquipmentConstantData
+/// [S2F15]: crate::messages::s2::NewEquipmentConstantSend
 #[derive(Clone, Debug)]
 pub enum EquipmentConstantValue {
   Bin(Vec<u8>),
@@ -2079,6 +2249,31 @@ impl TryFrom<Item> for ErrorCode {
   }
 }
 
+/// ## ERACK
+/// 
+/// **Enable/Disable Event Report Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single-byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F38]
+/// 
+/// [S2F38]: crate::messages::s2::EnableDisableEventReportAcknowledge
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum EnableDisableEventReportAcknowledgeCode {
+  Ok = 0,
+  CollectionEventDoesNotExist = 1,
+}
+singleformat_enum!{EnableDisableEventReportAcknowledgeCode, Bin}
+
 /// ## ERRTEXT
 /// 
 /// Text string describing the error noted in the corresponding [ERRCODE].
@@ -2109,6 +2304,21 @@ impl TryFrom<Item> for ErrorCode {
 pub struct ErrorText(Vec<Char>);
 singleformat_vec!{ErrorText, Ascii, 0..=120, Char}
 
+/// ## FCNID
+/// 
+/// **Function ID**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F43], [S2F44]
+/// 
+/// [S2F43]: crate::messages::s2::ResetSpoolingStreamsAndFunctions
+/// [S2F44]: crate::messages::s2::ResetSpoolingAcknowledge
+pub struct FunctionID(pub u8);
+singleformat!{FunctionID, U1}
+
 /// ## GRANT
 /// 
 /// Grant code, 1 byte.
@@ -2117,13 +2327,16 @@ singleformat_vec!{ErrorText, Ascii, 0..=120, Char}
 /// 
 /// #### Used By
 /// 
-/// - S2F2, S2F40
+/// - [S2F2], [S2F40]
 /// - S3F16
 /// - S4F26
 /// - S13F12
 /// - S14F24
 /// - S16F2
 /// - S19F20
+/// 
+/// [S2F2]:  crate::messages::s2::ServiceProgramLoadGrant
+/// [S2F40]: crate::messages::s2::MultiBlockGrant
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum Grant {
@@ -2134,6 +2347,37 @@ pub enum Grant {
 }
 singleformat_enum!{Grant, Bin}
 
+/// ## HCACK
+/// 
+/// **Host Command Parameter Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single-byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F42], [S2F50]
+/// 
+/// [S2F42]: crate::messages::s2::HostCommandAcknowledge
+/// [S2F50]: crate::messages::s2::EnhancedRemoteCommandAcknowledge
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum HostCommandAcknowledgeCode {
+  Ok = 0,
+  CommandDoesNotExist = 1,
+  CannotPerformNow = 2,
+  ParameterInvalid = 3,
+  ToBeCompleted = 4,
+  AlreadyInDesiredCondition = 5,
+  ObjectDoesNotExist = 6,
+}
+singleformat_enum!{HostCommandAcknowledgeCode, Bin}
+
 /// ## LENGTH
 /// 
 /// Length of the service program or process program in bytes.
@@ -2142,8 +2386,10 @@ singleformat_enum!{Grant, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F1
+/// - [S2F1]
 /// - S7F1, S7F29
+/// 
+/// [S2F1]: crate::messages::s2::ServiceProgramLoadInquire
 #[derive(Clone, Copy, Debug)]
 pub enum Length {
   I1(i8),
@@ -2156,6 +2402,127 @@ pub enum Length {
   U8(u64),
 }
 multiformat!{Length, I1, I2, I4, I8, U1, U2, U4, U8}
+
+/// ## LIMITACK
+/// 
+/// **Variable Limit Attribute Set Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single-byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F46]
+/// 
+/// [S2F46]: crate::messages::s2::VariableLimitAttributeAcknowledge
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum VariableLimitAttributeSetAcknowledgeCode {
+  LimitIDDoesNotExist = 1,
+  UpperDeadbandGreaterThanLimitMax = 2,
+  LowerDeadbandLessThanLimitMin = 3,
+  UpperDeadbandLessThanLowerDeadband = 4,
+  IllegalFormat = 5,
+  AsciiValueNonNumeric = 6,
+  DuplicateLimitDefinition = 7,
+}
+singleformat_enum!{VariableLimitAttributeSetAcknowledgeCode, Bin}
+
+/// ## LIMITID
+/// 
+/// **Limit Identifier**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Identifier for a specific set of limits for a variable to which the
+/// corresponding limit attributes refer.
+/// 
+/// Single-byte.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F45], [S2F46], [S2F48]
+/// 
+/// [S2F45]: crate::messages::s2::DefineVariableLimitAttributes
+/// [S2F46]: crate::messages::s2::VariableLimitAttributeAcknowledge
+/// [S2F48]: crate::messages::s2::VariableLimitAttributeSend
+pub struct LimitID(pub u8);
+singleformat!{LimitID, Bin}
+
+/// ## LIMITMAX
+/// 
+/// **Limit Maximum**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// The maximum allowed value for the limit values of a variable.
+/// 
+/// The format must match that of the specified variable.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F48]
+/// 
+/// [S2F48]: crate::messages::s2::VariableLimitAttributeSend
+pub enum LimitMaximum {
+  Bool(Vec<bool>),
+  Ascii(Vec<Char>),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+  F4(Vec<f32>),
+  F8(Vec<f64>),
+}
+multiformat_vec!{LimitMaximum, Bool, Ascii, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
+
+/// ## LIMITMIN
+/// 
+/// **Limit Minimum**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// The minimum allowed value for the limit values of a variable.
+/// 
+/// The format must match that of the specified variable.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F48]
+/// 
+/// [S2F48]: crate::messages::s2::VariableLimitAttributeSend
+pub enum LimitMinimum {
+  Bool(Vec<bool>),
+  Ascii(Vec<Char>),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+  F4(Vec<f32>),
+  F8(Vec<f64>),
+}
+multiformat_vec!{LimitMinimum, Bool, Ascii, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
 
 /// ## LOC
 /// 
@@ -2171,10 +2538,99 @@ multiformat!{Length, I1, I2, I4, I8, U1, U2, U4, U8}
 /// 
 /// #### Used By
 /// 
-/// - S2F27
+/// - [S2F27]
 /// - S3F2
+/// 
+/// [S2F27]: crate::messages::s2::InitiateProcessingRequest
 pub struct LocationCode(pub u8);
 singleformat!{LocationCode, Bin}
+
+/// ## LOWERDB
+/// 
+/// **Lower Deadband**
+/// 
+/// Variable limit attribute which defines the lower boundary of the deadband
+/// of a limit. The value applies to a single limit for a specified variable.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F45], [S2F48]
+/// 
+/// [S2F45]: crate::messages::s2::DefineVariableLimitAttributes
+/// [S2F48]: crate::messages::s2::VariableLimitAttributeSend
+pub enum LowerDeadband {
+  Bool(Vec<bool>),
+  Ascii(Vec<Char>),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+  F4(Vec<f32>),
+  F8(Vec<f64>),
+}
+multiformat_vec!{LowerDeadband, Bool, Ascii, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
+
+/// ## LRACK
+/// 
+/// **Link Report Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single-byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F36]
+/// 
+/// [S2F36]: crate::messages::s2::LinkEventReportAcknowledge
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum LinkReportAcknowledgeCode {
+  Ok = 0,
+  InsufficientSpace = 1,
+  InvalidFormat = 2,
+  CollectionEventLinkAlreadyDefined = 3,
+  CollectionEventDoesNotExist = 4,
+  ReportDoesNotExist = 5,
+}
+singleformat_enum!{LinkReportAcknowledgeCode, Bin}
+
+/// ## LVACK
+/// 
+/// **Variable Limit Definition Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single-byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F46]
+/// 
+/// [S2F46]: crate::messages::s2::VariableLimitAttributeAcknowledge
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum VariableLimitDefinitonAcknowledgeCode {
+  VariableDoesNotExist = 1,
+  VariableHasNoLimitsCapability = 2,
+  VariableRepeatedInMessage = 3,
+  LimitValueError = 4,
+}
+singleformat_enum!{VariableLimitDefinitonAcknowledgeCode, Bin}
 
 /// ## MDLN
 /// 
@@ -2206,7 +2662,7 @@ singleformat_vec!{ModelName, Ascii, 0..=20, Char}
 /// 
 /// #### Used By
 /// 
-/// - S2F27
+/// - [S2F27]
 /// - S3F2, S3F4, S3F7, S3F9, S3F12, S3F13
 /// - S4F1, S4F3, S4F5, S4F7, S4F9, S4F11, S4F13, S4F15, S4F17
 /// - S7F7, S7F8, S7F10, S7F11, S7F13, S7F35, S7F36
@@ -2214,6 +2670,8 @@ singleformat_vec!{ModelName, Ascii, 0..=20, Char}
 ///   S12F16, S12F17, S12F18
 /// - S16F3, S16F11, S16F15
 /// - S18F10, S18F11, S18F16
+/// 
+/// [S2F27]: crate::messages::s2::InitiateProcessingRequest
 pub struct MaterialID(Vec<Char>);
 singleformat_vec!{MaterialID, Ascii, 0..=80, Char}
 
@@ -2261,6 +2719,46 @@ pub enum ObjectID {
   U8(u64),
 }
 multiformat_ascii!{ObjectID, U1, U2, U4, U8}
+
+/// ## OBJSPEC
+/// 
+/// **Object Specifier**
+/// 
+/// Text string that has an internal format and that is used to point to a
+/// specific object instance.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// The string is formed out of a sequence of formatted substrings, each
+/// specifying an object's type, and name. The substring format has the
+/// following four parts:
+/// 
+/// 1. Object Type
+/// 2. Colon Character ':'
+/// 3. Object Name
+/// 4. Greater-Than Symbol '>'
+/// 
+/// The Object Type may be ommitted (along with the Colon Character), if it is
+/// not necessary to uniquely identify an object. The final Greater-Than Symbol
+/// is optional.
+/// 
+/// TODO: Implement format restrictions.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F49]
+/// - S13F11, S13F13, S13F15
+/// - S14F1, S14F3, S14F5, S14F7, S14F9, S14F10, S14F11, S14F13, S14F15,
+///   S14F17, S14F19, S14F25, S14F27
+/// - S15F7, S15F23, S15F43, S15F47
+/// 
+/// [S2F49]: crate::messages::s2::EnhancedRemoteCommand
+pub struct ObjectSpecifier(pub Vec<Char>);
+singleformat_vec!{ObjectSpecifier, Ascii}
 
 /// ## OBJTYPE
 /// 
@@ -2343,9 +2841,11 @@ singleformat_enum!{OnLineAcknowledge, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F27
+/// - [S2F27]
 /// - S7F1, S7F3, S7F5, S7F6, S7F8, S7F10, S7F11, S7F13, S7F17, S7F20, S7F23,
 ///   S7F25, S7F26, S7F27, S7F31, S7F33, S7F34, S7F36, S7F39, S7F43
+/// 
+/// [S2F27]: crate::messages::s2::InitiateProcessingRequest
 pub struct ProcessProgramID(Vec<Char>);
 singleformat_vec!{ProcessProgramID, Ascii, 0..=120, Char}
 
@@ -2359,7 +2859,9 @@ singleformat_vec!{ProcessProgramID, Ascii, 0..=120, Char}
 /// 
 /// #### Used By
 /// 
-/// - S2F20
+/// - [S2F20]
+/// 
+/// [S2F20]: crate::messages::s2::ResetAcknowledge
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum ResetAcknowledgeCode {
@@ -2376,7 +2878,11 @@ singleformat_enum!{ResetAcknowledgeCode, U1}
 /// 
 /// #### Used By
 /// 
-/// - S2F21, S2F41, S2F49
+/// - [S2F21], [S2F41], [S2F49]
+/// 
+/// [S2F21]: crate::messages::s2::RemoteCommandSend
+/// [S2F41]: crate::messages::s2::HostCommandSend
+/// [S2F49]: crate::messages::s2::EnhancedRemoteCommand
 #[derive(Clone, Debug)]
 pub enum RemoteCommand {
   Ascii(Vec<Char>),
@@ -2393,8 +2899,10 @@ multiformat_ascii!{RemoteCommand, I1, U1}
 /// 
 /// #### Used By
 /// 
-/// - S2F23
+/// - [S2F23]
 /// - S17F5
+/// 
+/// [S2F23]: crate::messages::s2::TraceInitializeSend
 #[derive(Clone, Debug)]
 pub enum ReportingGroupSize {
   Ascii(Vec<Char>),
@@ -2419,7 +2927,9 @@ multiformat_ascii!{ReportingGroupSize, I1, I2, I4, I8, U1, U2, U4, U8}
 /// 
 /// #### Used By
 /// 
-/// - S2F19
+/// - [S2F19]
+/// 
+/// [S2F19]: crate::messages::s2::ResetInitializeSend
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum ResetCode {
@@ -2436,9 +2946,12 @@ singleformat_enum!{ResetCode, U1}
 /// 
 /// #### Used By
 /// 
-/// - S2F33, S2F35
+/// - [S2F33], [S2F35]
 /// - S6F11, S6F13, S6F16, S6F18, S6F19, S6F21, S6F27, S6F30
 /// - S17F1, S17F2, S17F3, S17F4, S17F5, S17F9, S17F11, S17F12
+/// 
+/// [S2F33]: crate::messages::s2::DefineReport
+/// [S2F35]: crate::messages::s2::LinkEventReport
 #[derive(Clone, Debug)]
 pub enum ReportID {
   Ascii(Vec<Char>),
@@ -2453,6 +2966,31 @@ pub enum ReportID {
 }
 multiformat_ascii!{ReportID, I1, I2, I4, I8, U1, U2, U4, U8}
 
+/// ## RSPACK
+/// 
+/// **Reset Spooling Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single-byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F44]
+/// 
+/// [S2F44]: crate::messages::s2::ResetSpoolingAcknowledge
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum ResetSpoolingAcknowledgeCode {
+  Ok = 0,
+  Rejected = 1,
+}
+singleformat_enum!{ResetSpoolingAcknowledgeCode, Bin}
+
 /// ## SFCD
 /// 
 /// Status form code, 1 byte.
@@ -2465,6 +3003,7 @@ multiformat_ascii!{ReportID, I1, I2, I4, I8, U1, U2, U4, U8}
 /// 
 /// [S1F5]: crate::messages::s1::FormattedStatusRequest
 /// [S1F7]: crate::messages::s1::FixedFormRequest
+#[derive(Clone, Copy, Debug)]
 pub struct StatusFormCode(pub u8);
 singleformat!{StatusFormCode, Bin}
 
@@ -2496,7 +3035,9 @@ singleformat_vec!{SoftwareRevision, Ascii, 0..=20, Char}
 /// 
 /// #### Used By
 /// 
-/// - S2F4
+/// - [S2F4]
+/// 
+/// [S2F4]: crate::messages::s2::ServiceProgramSendAcknowledge
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum ServiceProgramAcknowledge {
@@ -2513,7 +3054,10 @@ singleformat_enum!{ServiceProgramAcknowledge, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F3, S2F6
+/// - [S2F3], [S2F6]
+/// 
+/// [S2F3]: crate::messages::s2::ServiceProgramSend
+/// [S2F6]: crate::messages::s2::ServiceProgramLoadData
 #[derive(Clone, Debug)]
 pub struct ServiceProgramData(pub Vec<u8>);
 singleformat_vec!{ServiceProgramData, Bin}
@@ -2526,7 +3070,13 @@ singleformat_vec!{ServiceProgramData, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F1, S2F4, S2F7, S2F9, S2F12
+/// - [S2F1], [S2F4], [S2F7], [S2F9], [S2F12]
+/// 
+/// [S2F1]:  crate::messages::s2::ServiceProgramLoadInquire
+/// [S2F4]:  crate::messages::s2::ServiceProgramSendAcknowledge
+/// [S2F7]:  crate::messages::s2::ServiceProgramRunSend
+/// [S2F9]:  crate::messages::s2::ServiceProgramResultsRequest
+/// [S2F12]: crate::messages::s2::ServiceProgramDirectoryData
 #[derive(Clone, Copy, Debug)]
 pub struct ServiceProgramID(pub [Char; 6]);
 impl From<ServiceProgramID> for Item {
@@ -2561,8 +3111,52 @@ impl TryFrom<Item> for ServiceProgramID {
 /// 
 /// #### Used By
 /// 
-/// - S2F10
+/// - [S2F10]
+/// 
+/// [S2F10]: crate::messages::s2::ServiceProgramResultsData
 pub type ServiceProgramResults = Item;
+
+/// ## STRACK
+/// 
+/// **Spool Stream Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single-byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F44]
+/// 
+/// [S2F44]: crate::messages::s2::ResetSpoolingAcknowledge
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum SpoolStreamAcknowledgeCode {
+  SpoolingDisallowed = 1,
+  StreamUnknown = 2,
+  FunctionUnknown = 3,
+  SecondaryFunctionDisallowed = 4,
+}
+singleformat_enum!{SpoolStreamAcknowledgeCode, Bin}
+
+/// ## STRID
+/// 
+/// **Stream ID**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F43], [S2F44]
+/// 
+/// [S2F43]: crate::messages::s2::ResetSpoolingStreamsAndFunctions
+/// [S2F44]: crate::messages::s2::ResetSpoolingAcknowledge
+pub struct StreamID(pub u8);
+singleformat!{StreamID, U1}
 
 /// ## SV
 /// 
@@ -2607,11 +3201,12 @@ multiformat_vec!{StatusVariableValue, List, Bin, Bool, Ascii, Jis8, I1, I2, I4, 
 /// #### Used By
 /// 
 /// - [S1F3], [S1F11], [S1F12]
-/// - S2F23
+/// - [S2F23]
 /// 
-/// [S1F3]: crate::messages::s1::SelectedEquipmentStatusRequest
+/// [S1F3]:  crate::messages::s1::SelectedEquipmentStatusRequest
 /// [S1F11]: crate::messages::s1::StatusVariableNamelistRequest
 /// [S1F12]: crate::messages::s1::StatusVariableNamelistReply
+/// [S2F23]: crate::messages::s2::TraceInitializeSend
 #[derive(Clone, Copy, Debug)]
 pub enum StatusVariableID {
   I1(i8),
@@ -2678,7 +3273,9 @@ multiformat_vec!{TableElement, List, Bin, Bool, Ascii, Jis8, I1, I2, I4, I8, U1,
 /// 
 /// #### Used By
 /// 
-/// - S2F24
+/// - [S2F24]
+/// 
+/// [S2F24]: crate::messages::s2::TraceInitializeAcknowledge
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum TraceInitializeAcknowledgeCode {
@@ -2705,7 +3302,9 @@ singleformat_enum!{TraceInitializeAcknowledgeCode, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F32
+/// - [S2F32]
+/// 
+/// [S2F32]: crate::messages::s2::DateTimeSetAcknowledge
 #[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum TimeAcknowledgeCode {
@@ -2762,7 +3361,10 @@ singleformat_enum!{TimeAcknowledgeCode, Bin}
 /// 
 /// #### Used By
 /// 
-/// - S2F18, S2F31
+/// - [S2F18], [S2F31]
+/// 
+/// [S2F18]: crate::messages::s2::DateTimeData
+/// [S2F31]: crate::messages::s2::DateTimeSetRequest
 #[derive(Clone, Debug)]
 pub struct Time(pub Vec<Char>);
 singleformat_vec!{Time, Ascii}
@@ -2775,8 +3377,10 @@ singleformat_vec!{Time, Ascii}
 /// 
 /// #### Used By
 /// 
-/// - S2F23
+/// - [S2F23]
 /// - S17F5
+/// 
+/// [S2F23]: crate::messages::s2::TraceInitializeSend
 #[derive(Clone, Debug)]
 pub enum TotalSamples {
   Ascii(Vec<Char>),
@@ -2799,9 +3403,11 @@ multiformat_ascii!{TotalSamples, I1, I2, I4, I8, U1, U2, U4, U8}
 /// 
 /// #### Used By
 /// 
-/// - S2F23
+/// - [S2F23]
 /// - S6F1, S6F27, S6F28, S6F29, S6F30
 /// - S17F5, S17F6, S17F7, S17F8, S17F13, S17F14
+/// 
+/// [S2F23]: crate::messages::s2::TraceInitializeSend
 #[derive(Clone, Debug)]
 pub enum TraceRequestID {
   Ascii(Vec<Char>),
@@ -2870,13 +3476,46 @@ singleformat_enum!{TransferStatusOutputPort, Bin}
 /// #### Used By
 /// 
 /// - [S1F12], [S1F22]
-/// - S2F30, S2F38
+/// - [S2F30], [S2F38]
 /// - S7F22
 /// 
 /// [S1F12]: crate::messages::s1::StatusVariableNamelistReply
 /// [S1F22]: crate::messages::s1::DataVariableNamelist
+/// [S2F30]: crate::messages::s2::EquipmentConstantNamelist
+/// [S2F38]: crate::messages::s2::EnableDisableEventReportAcknowledge
 pub struct Units(pub Vec<Char>);
 singleformat_vec!{Units, Ascii}
+
+/// ## UPPERDB
+/// 
+/// **Upper Deadband**
+/// 
+/// Variable limit attribute which defines the upper boundary of the deadband
+/// of a limit. The value applies to a single limit for a specified variable.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F45], [S2F48]
+/// 
+/// [S2F45]: crate::messages::s2::DefineVariableLimitAttributes
+/// [S2F48]: crate::messages::s2::VariableLimitAttributeSend
+pub enum UpperDeadband {
+  Bool(Vec<bool>),
+  Ascii(Vec<Char>),
+  I1(Vec<i8>),
+  I2(Vec<i16>),
+  I4(Vec<i32>),
+  I8(Vec<i64>),
+  U1(Vec<u8>),
+  U2(Vec<u16>),
+  U4(Vec<u32>),
+  U8(Vec<u64>),
+  F4(Vec<f32>),
+  F8(Vec<f64>),
+}
+multiformat_vec!{UpperDeadband, Bool, Ascii, I1, I2, I4, I8, U1, U2, U4, U8, F4, F8}
 
 /// ## VID
 /// 
@@ -2887,7 +3526,7 @@ singleformat_vec!{Units, Ascii}
 /// #### Used By
 /// 
 /// - [S1F21], [S1F22], [S1F24]
-/// - S2F33, S2F45, S2F46, S2F47, S2F48
+/// - [S2F33], [S2F45], [S2F46], [S2F47], [S2F48]
 /// - S6F13, S6F18, S6F22
 /// - S16F9
 /// - S17F1
@@ -2895,6 +3534,11 @@ singleformat_vec!{Units, Ascii}
 /// [S1F21]: crate::messages::s1::DataVariableNamelistRequest
 /// [S1F22]: crate::messages::s1::DataVariableNamelist
 /// [S1F24]: crate::messages::s1::CollectionEventNamelist
+/// [S2F33]: crate::messages::s2::DefineReport
+/// [S2F45]: crate::messages::s2::DefineVariableLimitAttributes
+/// [S2F46]: crate::messages::s2::VariableLimitAttributeAcknowledge
+/// [S2F47]: crate::messages::s2::VariableLimitAttributeRequest
+/// [S2F48]: crate::messages::s2::VariableLimitAttributeSend
 pub enum VariableID {
   Ascii(Vec<Char>),
   I1(i8),
@@ -2907,3 +3551,29 @@ pub enum VariableID {
   U8(u64),
 }
 multiformat_ascii!{VariableID, I1, I2, I4, I8, U1, U2, U4, U8}
+
+/// ## VLAACK
+/// 
+/// **Variable Limit Attribute Acknowledge Code**
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Format
+/// 
+/// Single-byte enumerated value.
+/// 
+/// ---------------------------------------------------------------------------
+/// 
+/// #### Used By
+/// 
+/// - [S2F46]
+/// 
+/// [S2F46]: crate::messages::s2::VariableLimitAttributeAcknowledge
+#[derive(Clone, Copy, Debug, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum VariableLimitAttributeAcknowledgeCode {
+  Ok = 0,
+  LimitAttributeDefinitionError = 1,
+  CannotPerformNow = 2,
+}
+singleformat_enum!{VariableLimitAttributeAcknowledgeCode, Bin}
