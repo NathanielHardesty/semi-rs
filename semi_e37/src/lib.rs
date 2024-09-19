@@ -36,15 +36,19 @@
 //! 
 //! ---------------------------------------------------------------------------
 //! 
-//! [HSMS] is a [Session Layer] protocol designed to facilitate communications
-//! between semiconductor equipment over TCP/IP, particularly for sending data
-//! formatted with the SECS-II ([SEMI E5]) [Presentation Layer] protocol and
-//! understood by the GEM ([SEMI E30]) [Application Layer] protocol (together
-//! known as SECS/GEM).
+//! HSMS is a protocol designed to facilitate the reliable transmission of
+//! messages between semiconductor equipment over TCP/IP.
 //! 
-//! For ease of programming and extension, the functionality of [HSMS] has been
-//! divided into a few subsets, the Primitive Services, the HSMS Generic
-//! Services, and the HSMS Single Selected Session Services.
+//! Most commonly, exchanged messages are encoded with the SECS-II ([SEMI E5])
+//! protocol.
+//! 
+//! For ease of programming and extension, the functionality of the protocol
+//! has been divided into a few subsets: the Primitive Services, which manages
+//! the TCP/IP connection and the sending of messages with proper headers; the
+//! Generic Services, which manages the sending of messages of particular types
+//! and at particular times as allowed by the protocol; and the Single Selected
+//! Session Services, which manages the restriction of the protocol to
+//! scenarios involving a single host/equipment pair in communication.
 //! 
 //! ---------------------------------------------------------------------------
 //! 
@@ -66,7 +70,7 @@
 //! 
 //! ---------------------------------------------------------------------------
 //! 
-//! ## HSMS Generic Services
+//! ## Generic Services
 //! 
 //! Defines the full functionality of the [HSMS] protocol without modification
 //! by any subsidiary standards.
@@ -97,7 +101,7 @@
 //! 
 //! ---------------------------------------------------------------------------
 //! 
-//! ## HSMS Single Selected-Session Services
+//! ## Single Selected-Session Services
 //! 
 //! Not yet implemented.
 //! 
@@ -128,10 +132,6 @@
 //! [SEMI E5]:  https://store-us.semi.org/products/e00500-semi-e5-specification-for-semi-equipment-communications-standard-2-message-content-secs-ii
 //! [SEMI E30]: https://store-us.semi.org/products/e03000-semi-e30-specification-for-the-generic-model-for-communications-and-control-of-manufacturing-equipment-gem
 //! [SEMI E37]: https://store-us.semi.org/products/e03700-semi-e37-high-speed-secs-message-services-hsms-generic-services
-//! 
-//! [Application Layer]:  https://en.wikipedia.org/wiki/Application_layer
-//! [Presentation Layer]: https://en.wikipedia.org/wiki/Presentation_layer
-//! [Session Layer]:      https://en.wikipedia.org/wiki/Session_layer
 //! 
 //! [HSMS]:                           crate
 //! [Selection State]:                SelectionState
