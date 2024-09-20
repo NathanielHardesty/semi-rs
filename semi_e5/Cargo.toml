@@ -22,8 +22,8 @@ rust-version = "1.82"
 
 [dependencies]
 
-# num_enum is BSD-3-Clause or MIT or Apache-2.0
-num_enum = "0.7.2"
-
 # encoding is MIT
 encoding = "0.2.33"
+
+# num_enum is MIT or Apache-2.0 or BSD-3-Clause
+num_enum = "0.7.2"

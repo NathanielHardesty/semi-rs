@@ -26,5 +26,11 @@ rust-version = "1.82"
 #semi_e5 = "0.1.0"
 semi_e5 = {path = "../semi_e5", version = "0.1.0"}
 
+# atomic is MIT or Apache-2.0
+atomic = "0.6.0"
+
+# bytemuck is MIT or Apache-2.0
+bytemuck = {version = "1.18.0", features = ["derive"]}
+
 # oneshot is MIT or Apache-2.0
 oneshot = "0.1.6"

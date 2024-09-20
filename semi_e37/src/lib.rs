@@ -206,6 +206,7 @@ use std::{
     DerefMut,
   },
   sync::{
+    atomic::Ordering::Relaxed,
     mpsc::{
       channel,
       Receiver,
@@ -221,6 +222,7 @@ use std::{
   },
   time::Duration,
 };
+use atomic::Atomic;
 use oneshot::Sender as SendOnce;
 
 // PRIMITIVE SERVICES
@@ -1226,7 +1228,7 @@ pub enum HsmsMessageContents {
 pub struct HsmsClient {
   parameter_settings: ParameterSettings,
   primitive_client: Arc<PrimitiveClient>,
-  selection_state: RwLock<SelectionState>,
+  selection_state: Atomic<SelectionState>,
   selection_mutex: Mutex<()>,
   outbox: Mutex<HashMap<u32, (HsmsMessageID, SendOnce<Option<HsmsMessage>>)>>,
   system: Mutex<u32>,
@@ -1353,7 +1355,7 @@ impl HsmsClient {
     }
     // Move to Not Selected State
     let _guard = self.selection_mutex.lock().unwrap();
-    *self.selection_state.write().unwrap().deref_mut() = SelectionState::NotSelected;
+    self.selection_state.store(SelectionState::NotSelected, Relaxed);
     // Finish
     result
   }
@@ -1526,7 +1528,7 @@ impl HsmsClient {
         Ok(rx_message) => match rx_message.contents {
           // RX: Data Message
           HsmsMessageContents::DataMessage(data) => {
-            match self.selection_state.read().unwrap().deref() {
+            match self.selection_state.load(Relaxed) {
               // IS: SELECTED
               SelectionState::Selected => {
                 // RX: Primary Data Message
@@ -1578,8 +1580,7 @@ impl HsmsClient {
           HsmsMessageContents::SelectRequest => {
             match self.selection_mutex.try_lock() {
               Ok(_guard) => {
-                let selection_state = *self.selection_state.read().unwrap().deref();
-                match selection_state {
+                match self.selection_state.load(Relaxed) {
                   // IS: NOT SELECTED
                   SelectionState::NotSelected => {
                     // TX: Select.rsp Success
@@ -1588,7 +1589,7 @@ impl HsmsClient {
                       contents: HsmsMessageContents::SelectResponse(SelectStatus::Success as u8),
                     }.into()).is_err() {break};
                     // TO: SELECTED
-                    *self.selection_state.write().unwrap().deref_mut() = SelectionState::Selected;
+                    self.selection_state.store(SelectionState::Selected, Relaxed);
                   },
                   // IS: SELECTED
                   SelectionState::Selected => {
@@ -1717,9 +1718,8 @@ impl HsmsClient {
           // RX: Separate.req
           HsmsMessageContents::SeparateRequest => {
             let _guard: std::sync::MutexGuard<'_, ()> = self.selection_mutex.lock().unwrap();
-            let selection_state = *self.selection_state.read().unwrap().deref();
-            if let SelectionState::Selected = selection_state {
-              *self.selection_state.write().unwrap().deref_mut() = SelectionState::NotSelected;
+            if let SelectionState::Selected = self.selection_state.load(Relaxed) {
+              self.selection_state.store(SelectionState::NotSelected, Relaxed);
             }
           },
         },
@@ -1866,7 +1866,7 @@ impl HsmsClient {
     let reply_expected = message.function % 2 == 1 && message.w;
     thread::spawn(move || {
       'disconnect: {
-        match clone.selection_state.read().unwrap().deref() {
+        match clone.selection_state.load(Relaxed) {
           // IS: SELECTED
           SelectionState::Selected => {
             // TX: Data Message
@@ -1958,8 +1958,7 @@ impl HsmsClient {
     let clone: Arc<HsmsClient> = self.clone();
     thread::spawn(move || {
       let _guard = clone.selection_mutex.lock();
-      let selection_state = *clone.selection_state.read().unwrap().deref();
-      match selection_state {
+      match clone.selection_state.load(Relaxed) {
         SelectionState::NotSelected => {
           // TX: Select.req
           match clone.tx_handle(
@@ -1978,18 +1977,16 @@ impl HsmsClient {
                   // RX: Select.rsp Success
                   if select_status == SelectStatus::Success as u8 {
                     // TO: SELECTED
-                    *clone.selection_state.write().unwrap() = SelectionState::Selected;
+                    clone.selection_state.store(SelectionState::Selected, Relaxed);
                     Ok(())
                   }
                   // RX: Select.rsp Failure
                   else {
-                    *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
                     Err(ConnectionStateTransition::None)
                   }
                 },
                 // RX: Unknown
                 _ => {
-                  *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
                   Err(ConnectionStateTransition::None)
                 },
               }
@@ -1997,7 +1994,6 @@ impl HsmsClient {
             // RX: Invalid
             None => {
               // TO: NOT CONNECTED
-              *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
               Err(clone.disconnect())
             },
           }
@@ -2169,8 +2165,7 @@ impl HsmsClient {
     let clone: Arc<HsmsClient> = self.clone();
     thread::spawn(move || {
       let _guard = clone.selection_mutex.lock().unwrap();
-      let selection_state = *clone.selection_state.read().unwrap().deref();
-      match selection_state {
+      match clone.selection_state.load(Relaxed) {
         SelectionState::NotSelected => {
           Err(ConnectionStateTransition::None)
         },
@@ -2184,7 +2179,7 @@ impl HsmsClient {
             false,
             clone.parameter_settings.t6,
           )?;
-          *clone.selection_state.write().unwrap().deref_mut() = SelectionState::NotSelected;
+          clone.selection_state.store(SelectionState::NotSelected, Relaxed);
           Ok(())
         },
       }
@@ -2248,7 +2243,8 @@ impl HsmsClient {
 /// [Select Procedure]:   HsmsClient::select
 /// [Deselect Procedure]: HsmsClient::deselect
 /// [Separate Procedure]: HsmsClient::separate
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::NoUninit)]
+#[repr(u8)]
 pub enum SelectionState {
   /// ### NOT SELECTED
   /// **Based on SEMI E37-1109§5.5.2.1**
