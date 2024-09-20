@@ -92,8 +92,8 @@ fn test_equipment() {
                 id,
                 s1::EquipmentCRA((
                   CommAck::Accepted, (
-                    ModelName::new(vec![CapitalT, SmallE, SmallS, SmallT]).unwrap(),
-                    SoftwareRevision::new(vec![Digit0, Digit1, Digit0]).unwrap(),
+                    ModelName::new(b"SEMI-RS".as_ascii().unwrap().to_vec()).unwrap(),
+                    SoftwareRevision::new(b"010".as_ascii().unwrap().to_vec()).unwrap(),
                   )
                 )).into()
               ).join().unwrap().unwrap();
@@ -234,13 +234,13 @@ fn test_equipment() {
     let mut system: u32 = 0;
     loop {
       //LINK TEST
-      let link_result: Result<(), ConnectionStateTransition> = tx_client.linktest(system).join().unwrap();
+      let link_result: Result<(), ConnectionStateTransition> = tx_client.linktest(system + 0x1000).join().unwrap();
       system += 1;
       println!("EQUIPMENT LINK TEST {:?}", link_result);
-      if link_result.is_err() {break}
       if system == 10 || link_result.is_err() {break}
       thread::sleep(Duration::from_secs(1));
     }
+    let _a = tx_client.separate(HsmsMessageID {system: system + 0x1000, session: 0xFFFF}).join().unwrap();
     tx_client.disconnect();
   });
   rx_thread.join().unwrap();

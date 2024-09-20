@@ -110,9 +110,9 @@
 //! ## TODO
 //! 
 //! - [HSMS Client] - [HSMS Deselect Procedure]
-//! - [HSMS Client] - "Simultaneous Deselect Procedure"
-//! - [HSMS Client] - [HSMS Separate Procedure]
 //! - [HSMS Client] - [HSMS Reject Procedure]
+//! - [HSMS Client] - "Simultaneous Select Procedure"
+//! - [HSMS Client] - "Simultaneous Deselect Procedure"
 //! - HSMS-SS
 //! 
 //! ---------------------------------------------------------------------------
@@ -1227,6 +1227,7 @@ pub struct HsmsClient {
   parameter_settings: ParameterSettings,
   primitive_client: Arc<PrimitiveClient>,
   selection_state: RwLock<SelectionState>,
+  selection_mutex: Mutex<()>,
   outbox: Mutex<HashMap<u32, (HsmsMessageID, SendOnce<Option<HsmsMessage>>)>>,
   system: Mutex<u32>,
 }
@@ -1261,6 +1262,7 @@ impl HsmsClient {
       parameter_settings,
       primitive_client: PrimitiveClient::new(),
       selection_state:  Default::default(),
+      selection_mutex:  Default::default(),
       outbox:           Default::default(),
       system:           Default::default(),
     })
@@ -1308,13 +1310,14 @@ impl HsmsClient {
     entity: &str,
   ) -> Result<Receiver<(HsmsMessageID, semi_e5::Message)>, Error> {
     println!("HsmsClient::connect");
-    // Connect Primitive
+    // Connect Primitive Client
     let rx_receiver = self.primitive_client.connect(entity, self.parameter_settings.connect_mode, self.parameter_settings.t5, self.parameter_settings.t8)?;
     // Create Channel
     let (data_sender, data_receiver) = channel::<(HsmsMessageID, semi_e5::Message)>();
     // Start RX Thread
     let clone: Arc<HsmsClient> = self.clone();
     thread::spawn(move || {clone.rx_handle(rx_receiver, data_sender)});
+    // Finish
     Ok(data_receiver)
   }
 
@@ -1342,11 +1345,16 @@ impl HsmsClient {
     self: &Arc<Self>,
   ) -> ConnectionStateTransition {
     println!("HsmsClient::disconnect");
+    // Disconnect Primitive Client
     let result = self.primitive_client.disconnect();
+    // Clear Outbox
     for (_, (_, sender)) in self.outbox.lock().unwrap().deref_mut().drain() {
       let _ = sender.send(None);
     }
+    // Move to Not Selected State
+    let _guard = self.selection_mutex.lock().unwrap();
     *self.selection_state.write().unwrap().deref_mut() = SelectionState::NotSelected;
+    // Finish
     result
   }
 }
@@ -1520,7 +1528,7 @@ impl HsmsClient {
           HsmsMessageContents::DataMessage(data) => {
             match self.selection_state.read().unwrap().deref() {
               // IS: SELECTED
-              SelectionState::Selected(_session_id) => {
+              SelectionState::Selected => {
                 // RX: Primary Data Message
                 if data.function % 2 == 1 {
                   // INBOX: New Transaction
@@ -1568,44 +1576,52 @@ impl HsmsClient {
           },
           // RX: Select.req
           HsmsMessageContents::SelectRequest => {
-            let mut select = self.selection_state.write().unwrap();
-            match select.deref() {
-              // IS: NOT SELECTED
-              SelectionState::NotSelected => {
-                // TX: Select.rsp Success
-                if self.primitive_client.transmit(HsmsMessage {
-                  id: rx_message.id,
-                  contents: HsmsMessageContents::SelectResponse(SelectStatus::Success as u8),
-                }.into()).is_err() {break};
-                // TO: SELECTED
-                *select.deref_mut() = SelectionState::Selected(rx_message.id.session)
-              },
-              // IS: SELECT INITIATED
-              SelectionState::SelectInitiated(session_id) => {
-                // RX: Valid Simultaneous Select
-                if rx_message.id.session == *session_id {
-                  // TX: Select.rsp Success
-                  if self.primitive_client.transmit(HsmsMessage {
-                    id: rx_message.id,
-                    contents: HsmsMessageContents::SelectResponse(SelectStatus::Success as u8),
-                  }.into()).is_err() {break};
+            match self.selection_mutex.try_lock() {
+              Ok(_guard) => {
+                let selection_state = *self.selection_state.read().unwrap().deref();
+                match selection_state {
+                  // IS: NOT SELECTED
+                  SelectionState::NotSelected => {
+                    // TX: Select.rsp Success
+                    if self.primitive_client.transmit(HsmsMessage {
+                      id: rx_message.id,
+                      contents: HsmsMessageContents::SelectResponse(SelectStatus::Success as u8),
+                    }.into()).is_err() {break};
+                    // TO: SELECTED
+                    *self.selection_state.write().unwrap().deref_mut() = SelectionState::Selected;
+                  },
+                  // IS: SELECTED
+                  SelectionState::Selected => {
+                    // TX: Select.rsp Already Active
+                    if self.primitive_client.transmit(HsmsMessage {
+                      id: rx_message.id,
+                      contents: HsmsMessageContents::SelectResponse(SelectStatus::AlreadyActive as u8),
+                    }.into()).is_err() {break};
+                  },
+                  // IS: SELECT INITIATED
+                  // TODO: Find way to reimplement this under the current scheme.
+                  /*SelectionState::SelectInitiated(session_id) => {
+                    // RX: Valid Simultaneous Select
+                    if rx_message.id.session == *session_id {
+                      // TX: Select.rsp Success
+                      if self.primitive_client.transmit(HsmsMessage {
+                        id: rx_message.id,
+                        contents: HsmsMessageContents::SelectResponse(SelectStatus::Success as u8),
+                      }.into()).is_err() {break};
+                    }
+                    // RX: Invalid Simultaneous Select
+                    else {
+                      // TX: Select.rsp Already Active
+                      if self.primitive_client.transmit(HsmsMessage {
+                        id: rx_message.id,
+                        contents: HsmsMessageContents::SelectResponse(SelectStatus::AlreadyActive as u8),
+                      }.into()).is_err() {break};
+                    }
+                  },*/
                 }
-                // RX: Invalid Simultaneous Select
-                else {
-                  // TX: Select.rsp Already Active
-                  if self.primitive_client.transmit(HsmsMessage {
-                    id: rx_message.id,
-                    contents: HsmsMessageContents::SelectResponse(SelectStatus::AlreadyActive as u8),
-                  }.into()).is_err() {break};
-                }
               },
-              // IS: SELECTED
-              _ => {
-                // TX: Select.rsp Already Active
-                if self.primitive_client.transmit(HsmsMessage {
-                  id: rx_message.id,
-                  contents: HsmsMessageContents::SelectResponse(SelectStatus::AlreadyActive as u8),
-                }.into()).is_err() {break};
+              Err(_) => {
+                // Todo: probably appropriate to put something here, maybe to do with the simulatenous select procedure?
               },
             }
           },
@@ -1648,7 +1664,7 @@ impl HsmsClient {
           },
           // RX: Linktest.req
           HsmsMessageContents::LinktestRequest => {
-            // Linktest.rsp
+            // TX: Linktest.rsp
             if self.primitive_client.transmit(HsmsMessage{
               id: rx_message.id,
               contents: HsmsMessageContents::LinktestResponse,
@@ -1700,11 +1716,10 @@ impl HsmsClient {
           },
           // RX: Separate.req
           HsmsMessageContents::SeparateRequest => {
-            let mut select = self.selection_state.write().unwrap();
-            if let SelectionState::Selected(session_id) = select.deref() {
-              if *session_id == rx_message.id.session {
-                *select.deref_mut() = SelectionState::NotSelected;
-              }
+            let _guard: std::sync::MutexGuard<'_, ()> = self.selection_mutex.lock().unwrap();
+            let selection_state = *self.selection_state.read().unwrap().deref();
+            if let SelectionState::Selected = selection_state {
+              *self.selection_state.write().unwrap().deref_mut() = SelectionState::NotSelected;
             }
           },
         },
@@ -1853,7 +1868,7 @@ impl HsmsClient {
       'disconnect: {
         match clone.selection_state.read().unwrap().deref() {
           // IS: SELECTED
-          SelectionState::Selected(_session_id) => {
+          SelectionState::Selected => {
             // TX: Data Message
             match clone.tx_handle(
               HsmsMessage {
@@ -1942,56 +1957,53 @@ impl HsmsClient {
     println!("HsmsClient::select");
     let clone: Arc<HsmsClient> = self.clone();
     thread::spawn(move || {
-      {
-        let mut selection_state = clone.selection_state.write().unwrap();
-        match *selection_state {
-          // IS: NOT SELECTED
-          SelectionState::NotSelected => {
-            // TO: AWAITING REPLY
-            *selection_state = SelectionState::SelectInitiated(id.session);
-          },
-          // IS: SELECTED
-          _ => {return Err(ConnectionStateTransition::None)},
-        }
-      }
-      // TX: Select.req
-      match clone.tx_handle(
-        HsmsMessage {
-          id,
-          contents: HsmsMessageContents::SelectRequest,
-        },
-        true,
-        clone.parameter_settings.t6,
-      )?{
-        // RX: Valid
-        Some(rx_message) => {
-          match rx_message.contents {
-            // RX: Select.rsp
-            HsmsMessageContents::SelectResponse(select_status) => {
-              // RX: Select.rsp Success
-              if select_status == SelectStatus::Success as u8 {
-                // TO: SELECTED
-                *clone.selection_state.write().unwrap() = SelectionState::Selected(id.session);
-                Ok(())
-              }
-              // RX: Select.rsp Failure
-              else {
-                *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
-                Err(ConnectionStateTransition::None)
+      let _guard = clone.selection_mutex.lock();
+      let selection_state = *clone.selection_state.read().unwrap().deref();
+      match selection_state {
+        SelectionState::NotSelected => {
+          // TX: Select.req
+          match clone.tx_handle(
+            HsmsMessage {
+              id,
+              contents: HsmsMessageContents::SelectRequest,
+            },
+            true,
+            clone.parameter_settings.t6,
+          )?{
+            // RX: Valid
+            Some(rx_message) => {
+              match rx_message.contents {
+                // RX: Select.rsp
+                HsmsMessageContents::SelectResponse(select_status) => {
+                  // RX: Select.rsp Success
+                  if select_status == SelectStatus::Success as u8 {
+                    // TO: SELECTED
+                    *clone.selection_state.write().unwrap() = SelectionState::Selected;
+                    Ok(())
+                  }
+                  // RX: Select.rsp Failure
+                  else {
+                    *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
+                    Err(ConnectionStateTransition::None)
+                  }
+                },
+                // RX: Unknown
+                _ => {
+                  *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
+                  Err(ConnectionStateTransition::None)
+                },
               }
             },
-            // RX: Unknown
-            _ => {
+            // RX: Invalid
+            None => {
+              // TO: NOT CONNECTED
               *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
-              Err(ConnectionStateTransition::None)
+              Err(clone.disconnect())
             },
           }
         },
-        // RX: Invalid
-        None => {
-          // TO: NOT CONNECTED
-          *clone.selection_state.write().unwrap() = SelectionState::NotSelected;
-          Err(clone.disconnect())
+        SelectionState::Selected => {
+          Err(ConnectionStateTransition::None)
         },
       }
     })
@@ -2116,7 +2128,7 @@ impl HsmsClient {
     })
   }
 
-  /// ### HSMS SEPARATE PROCEDURE (TODO)
+  /// ### HSMS SEPARATE PROCEDURE
   /// **Based on SEMI E37-1109§7.9**
   /// 
   /// Asks the [HSMS Client] to initiate the [HSMS Separate Procedure] by
@@ -2151,9 +2163,32 @@ impl HsmsClient {
   /// [Separate.req]:            HsmsMessageContents::SeparateRequest
   pub fn separate(
     self: &Arc<Self>,
-  ) -> Result<(), ConnectionStateTransition> {
+    id: HsmsMessageID,
+  ) -> JoinHandle<Result<(), ConnectionStateTransition>> {
     println!("HsmsClient::separate");
-    todo!()
+    let clone: Arc<HsmsClient> = self.clone();
+    thread::spawn(move || {
+      let _guard = clone.selection_mutex.lock().unwrap();
+      let selection_state = *clone.selection_state.read().unwrap().deref();
+      match selection_state {
+        SelectionState::NotSelected => {
+          Err(ConnectionStateTransition::None)
+        },
+        SelectionState::Selected => {
+          // TX: Separate.req
+          clone.tx_handle(
+            HsmsMessage {
+              id,
+              contents: HsmsMessageContents::SeparateRequest,
+            },
+            false,
+            clone.parameter_settings.t6,
+          )?;
+          *clone.selection_state.write().unwrap().deref_mut() = SelectionState::NotSelected;
+          Ok(())
+        },
+      }
+    })
   }
 
   /// ### HSMS REJECT PROCEDURE (TODO)
@@ -2235,33 +2270,7 @@ pub enum SelectionState {
   /// [HSMS Client]:      HsmsClient
   /// [Select Procedure]: HsmsClient::select
   /// [Data Message]:     HsmsMessageContents::DataMessage
-  Selected(u16),
-
-  /// ### SELECT INITIATED
-  /// **Based on SEMI E37-1109§7.4.3**
-  /// 
-  /// In this state, the [HSMS Client] has initiated the [Select Procedure],
-  /// but has not yet received a reply. Although not outlined within the
-  /// standard, this intermediate state is heavily implied to meaningfully
-  /// exist, as it deliniates how the [HSMS Client] should respond to the
-  /// Remote Entity simultaneously initiating the [Select Procedure].
-  /// 
-  /// [HSMS Client]:      HsmsClient
-  /// [Select Procedure]: HsmsClient::select
-  SelectInitiated(u16),
-
-  /// ### DESELECT INITIATED
-  /// **Based on SEMI E37-1109§7.7.3**
-  /// 
-  /// In this state, the [HSMS Client] has initiated the [Deselect Procedure],
-  /// but has not yet received a reply. Although not outlined within the
-  /// standard, this intermediate state is heavily implied to meaningfully
-  /// exist, as it deliniates how the [HSMS Client] should respond to the
-  /// Remote Entity simultaneously initiating the [Deselect Procedure].
-  /// 
-  /// [HSMS Client]:        HsmsClient
-  /// [Deselect Procedure]: HsmsClient::deselect
-  DeselectInitiated(u16),
+  Selected,
 }
 impl Default for SelectionState {
   /// ### DEFAULT SELECTION STATE
