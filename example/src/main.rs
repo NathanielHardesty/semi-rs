@@ -50,7 +50,7 @@ fn test_equipment() {
     // LINK TEST
     let link_result: Result<(), Error> = equipment_client.linktest(system).join().unwrap();
     println!("equipment_client.linktest({:>8X}) : {:?}", system, link_result);
-    if let Err(_) = link_result {
+    if link_result.is_err() {
       // CONNECT
       let (socket, rx_message) = equipment_client.connect("127.0.0.1:5000").unwrap();
       println!("equipment_client.connect            : {:?}", socket);
@@ -203,10 +203,10 @@ fn test_equipment() {
       });
     }
     system += 1;
-    if system == 0x1040 {break}
+    if system == 0x1020 {break}
     thread::sleep(Duration::from_secs(1));
   }
-  println!("equipment_client.separate           : {:?}", equipment_client.separate(HsmsMessageID {system: system, session: 0xFFFF}).join().unwrap());
+  println!("equipment_client.separate           : {:?}", equipment_client.separate(HsmsMessageID {system, session: 0xFFFF}).join().unwrap());
   println!("equipment_client.disconnect         : {:?}", equipment_client.disconnect());
 }
 

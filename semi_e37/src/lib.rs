@@ -208,14 +208,14 @@ use std::{
   },
   sync::{
     atomic::Ordering::Relaxed,
+    Arc,
+    Mutex,
     mpsc::{
       channel,
       Receiver,
       Sender,
     },
-    Arc,
-    Mutex,
-    RwLock
+    RwLock,
   },
   thread::{
     self,
@@ -224,6 +224,7 @@ use std::{
   time::Duration,
 };
 use atomic::Atomic;
+use bytemuck::NoUninit;
 use oneshot::Sender as SendOnce;
 
 // PRIMITIVE SERVICES
@@ -651,7 +652,7 @@ impl PrimitiveClient {
         Ok(optional_rx_message) => if let Some(rx_message) = optional_rx_message {
           if rx_sender.send(rx_message).is_err() {break}
         },
-        //RX Failure
+        // RX: FAILURE
         Err(_error) => break,
       }
     }
@@ -1344,10 +1345,6 @@ impl HsmsClient {
   ) -> Result<(), Error> {
     // Disconnect Primitive Client
     let result: Result<(), Error> = self.primitive_client.disconnect();
-    // Clear Outbox
-    for (_, (_, sender)) in self.outbox.lock().unwrap().deref_mut().drain() {
-      let _ = sender.send(None);
-    }
     // Move to Not Selected State
     let _guard = self.selection_mutex.lock().unwrap();
     self.selection_state.store(SelectionState::NotSelected, Relaxed);
@@ -1734,6 +1731,10 @@ impl HsmsClient {
     }
     // TO: NOT CONNECTED
     //self.disconnect();
+    // OUTBOX: CLEAR ALL
+    for (_, (_, sender)) in self.outbox.lock().unwrap().deref_mut().drain() {
+      let _ = sender.send(None);
+    }
   }
 
   /// ### TRANSMISSION HANDLER
@@ -2241,7 +2242,7 @@ impl HsmsClient {
 /// [Select Procedure]:   HsmsClient::select
 /// [Deselect Procedure]: HsmsClient::deselect
 /// [Separate Procedure]: HsmsClient::separate
-#[derive(Clone, Copy, Debug, PartialEq, bytemuck::NoUninit)]
+#[derive(Clone, Copy, Debug, PartialEq, NoUninit)]
 #[repr(u8)]
 pub enum SelectionState {
   /// ### NOT SELECTED
