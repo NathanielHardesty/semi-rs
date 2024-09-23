@@ -23,7 +23,7 @@
 
 use std::{ascii::Char::*, io::Error, sync::Arc, thread::{self, JoinHandle}, time::Duration};
 use semi_e5::{Item, Message, items::*, messages::*};
-use semi_e37::{ConnectionMode, HsmsClient, HsmsMessageID, ParameterSettings};
+use semi_e37::generic::{ConnectionMode, Client, MessageID, ParameterSettings};
 
 fn main() {
   test_data();
@@ -43,7 +43,7 @@ fn test_data() {
 fn test_equipment() {
   // CLIENT
   let parameter_settings: ParameterSettings = ParameterSettings::default();
-  let equipment_client: Arc<HsmsClient> = HsmsClient::new(parameter_settings);
+  let equipment_client: Arc<Client> = Client::new(parameter_settings);
   // MAIN LOOP
   let mut system: u32 = 0x1000;
   loop {
@@ -55,7 +55,7 @@ fn test_equipment() {
       let (socket, rx_message) = equipment_client.connect("127.0.0.1:5000").unwrap();
       println!("equipment_client.connect            : {:?}", socket);
       // SPAWN RX THREAD
-      let equipment_rx: Arc<HsmsClient> = equipment_client.clone();
+      let equipment_rx: Arc<Client> = equipment_client.clone();
       let _rx_thread: JoinHandle<()> = thread::spawn(move || {
         for (id, request) in rx_message {
           println!("equipment_rx request                : {:?}", request);
@@ -206,7 +206,7 @@ fn test_equipment() {
     if system == 0x1020 {break}
     thread::sleep(Duration::from_secs(1));
   }
-  println!("equipment_client.separate           : {:?}", equipment_client.separate(HsmsMessageID {system, session: 0xFFFF}).join().unwrap());
+  println!("equipment_client.separate           : {:?}", equipment_client.separate(MessageID {system, session: 0xFFFF}).join().unwrap());
   println!("equipment_client.disconnect         : {:?}", equipment_client.disconnect());
 }
 
@@ -216,19 +216,19 @@ fn test_host() {
     connect_mode: ConnectionMode::Active,
     ..Default::default()
   };
-  let host_client: Arc<HsmsClient> = HsmsClient::new(parameter_settings);
+  let host_client: Arc<Client> = Client::new(parameter_settings);
   // CONNECT
   let (socket, _) = host_client.connect("127.0.0.1:5000").unwrap();
   println!("host_client.connect                 : {:?}", socket);
   thread::sleep(Duration::from_millis(2000));
   let mut system: u32 = 0;
   // SELECT
-  println!("host_client.select                  : {:?}", host_client.select(HsmsMessageID{session: 0, system}).join().unwrap());
+  println!("host_client.select                  : {:?}", host_client.select(MessageID{session: 0, system}).join().unwrap());
   system += 1;
   // DATA LOOP
   loop {
     let data_result: Result<Option<Message>, Error> = host_client.data(
-      HsmsMessageID {
+      MessageID {
         session: 0,
         system,
       },
@@ -244,5 +244,6 @@ fn test_host() {
     system += 1;
     thread::sleep(Duration::from_secs(1));
   }
+  println!("host_client.linktest                : {:?}", host_client.linktest(system).join().unwrap());
   println!("host_client.disconnect              : {:?}", host_client.disconnect());
 }
