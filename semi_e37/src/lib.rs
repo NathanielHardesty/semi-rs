@@ -528,7 +528,7 @@ impl PrimitiveClient {
     let (rx_sender, rx_receiver) = channel::<PrimitiveMessage>();
     // Start RX Thread
     let rx_clone: Arc<PrimitiveClient> = self.clone();
-    thread::spawn(move || {rx_clone.rx_handle(rx_sender.clone())});
+    thread::spawn(move || {rx_clone.receive(rx_sender.clone())});
     // Finish
     Ok((socket, rx_receiver))
   }
@@ -559,14 +559,13 @@ impl PrimitiveClient {
     self: &Arc<Self>
   ) -> Result<(), Error> {
     match self.connection_state.read().unwrap().deref() {
+      // IS: NOT CONNECTED
+      ConnectionState::NotConnected => return Err(Error::from(ErrorKind::NotConnected)),
       // IS: CONNECTED
       ConnectionState::Connected(stream) => {
         // TCP: SHUTDOWN
-        // This should cause all read locks on the connection state to release.
         let _ = stream.shutdown(Shutdown::Both);
       },
-      // IS: NOT CONNECTED
-      _ => return Err(Error::from(ErrorKind::NotConnected)),
     }
     // TO: NOT CONNECTED
     *self.connection_state.write().unwrap().deref_mut() = ConnectionState::NotConnected;
@@ -583,7 +582,7 @@ impl PrimitiveClient {
 /// [Client]:       PrimitiveClient
 /// [HSMS Message]: HsmsMessage
 impl PrimitiveClient {
-  /// ### RECEPTION HANDLER
+  /// ### RECEIVE MESSAGES
   /// 
   /// A [Primitive Client] in the [CONNECTED] state will automatically receive 
   /// [Primitive Message]s, and send them to the hook provided by the
@@ -593,7 +592,7 @@ impl PrimitiveClient {
   /// [Primitive Client]:            PrimitiveClient
   /// [Primitive Connect Procedure]: PrimitiveClient::connect
   /// [CONNECTED]:                   ConnectionState::Connected
-  fn rx_handle(
+  fn receive(
     self: Arc<Self>,
     rx_sender: Sender<PrimitiveMessage>,
   ) {
@@ -640,7 +639,7 @@ impl PrimitiveClient {
           &message_buffer[5],
           u32::from_be_bytes(message_buffer[6..10].try_into().unwrap()),
           &message_buffer[10..],
-        );*/
+        );// */
         // Finish
         match PrimitiveMessage::try_from(message_buffer) {
           Ok(message) => Ok(Some(message)),
@@ -678,7 +677,7 @@ impl PrimitiveClient {
     message: PrimitiveMessage,
   ) -> Result<(), Error> {
     match self.connection_state.read().unwrap().deref() {
-      ConnectionState::Connected(stream_immutable) => 'lock: {
+      ConnectionState::Connected(stream_immutable) => 'disconnect: {
         let mut stream: &TcpStream = stream_immutable;
         // Header + Data [Bytes 4+]
         let message_buffer: Vec<u8> = (&message).into();
@@ -696,10 +695,10 @@ impl PrimitiveClient {
           &message_buffer[5],
           u32::from_be_bytes(message_buffer[6..10].try_into().unwrap()),
           &message_buffer[10..],
-        );*/
+        );// */
         // Write
-        if stream.write_all(&length_buffer).is_err() {break 'lock};
-        if stream.write_all(&message_buffer).is_err() {break 'lock};
+        if stream.write_all(&length_buffer).is_err() {break 'disconnect};
+        if stream.write_all(&message_buffer).is_err() {break 'disconnect};
         // Finish
         return Ok(())
       },
@@ -1315,7 +1314,7 @@ impl HsmsClient {
     let (data_sender, data_receiver) = channel::<(HsmsMessageID, semi_e5::Message)>();
     // Start RX Thread
     let clone: Arc<HsmsClient> = self.clone();
-    thread::spawn(move || {clone.rx_handle(rx_receiver, data_sender)});
+    thread::spawn(move || {clone.receive(rx_receiver, data_sender)});
     // Finish
     Ok((socket, data_receiver))
   }
@@ -1343,11 +1342,13 @@ impl HsmsClient {
   pub fn disconnect(
     self: &Arc<Self>,
   ) -> Result<(), Error> {
-    // Disconnect Primitive Client
+    // TO: NOT CONNECTED
     let result: Result<(), Error> = self.primitive_client.disconnect();
-    // Move to Not Selected State
+    // TO: NOT SELECTED
     let _guard = self.selection_mutex.lock().unwrap();
-    self.selection_state.store(SelectionState::NotSelected, Relaxed);
+    if let SelectionState::Selected = self.selection_state.load(Relaxed) {
+      self.selection_state.store(SelectionState::NotSelected, Relaxed);
+    }
     // Finish
     result
   }
@@ -1385,10 +1386,10 @@ impl HsmsClient {
 /// [Reject.req]:              HsmsMessageContents::RejectRequest
 /// [Separate.req]:            HsmsMessageContents::SeparateRequest
 impl HsmsClient {
-  /// ### RECEPTION HANDLER
+  /// ### RECEIVE MESSAGES
   /// 
-  /// An [HSMS Client] in the [CONNECTED] state will automatically [Receive]
-  /// [Hsms Message]s and respond based on its [HSMS Message Contents] and the
+  /// An [HSMS Client] in the [CONNECTED] state will automatically receive
+  /// [HSMS Message]s and respond based on its [HSMS Message Contents] and the
   /// current [Selection State].
   /// 
   /// -------------------------------------------------------------------------
@@ -1508,7 +1509,7 @@ impl HsmsClient {
   /// [SELECTED]:                SelectionState::Selected
   /// [SELECT INITIATED]:        SelectionState::SelectInitiated
   /// [DESELECT INITIATED]:      SelectionState::DeselectInitiated
-  fn rx_handle(
+  fn receive(
     self: &Arc<Self>,
     rx_receiver: Receiver<PrimitiveMessage>,
     rx_sender: Sender<(HsmsMessageID, semi_e5::Message)>,
@@ -1729,32 +1730,47 @@ impl HsmsClient {
         },
       }
     }
-    // TO: NOT CONNECTED
-    //self.disconnect();
-    // OUTBOX: CLEAR ALL
+    // OUTBOX: CLEAR
     for (_, (_, sender)) in self.outbox.lock().unwrap().deref_mut().drain() {
       let _ = sender.send(None);
     }
   }
 
-  /// ### TRANSMISSION HANDLER
-  fn tx_handle(
+  /// ### TRANSMIT MESSAGE
+  /// **Based on SEMI E37-1109§7.2**
+  /// 
+  /// Serializes an [HSMS Message] and transmits it over the TCP/IP connection.
+  /// If a reply is expected, this function will then wait up to the time
+  /// specified for the requisite response [HSMS Message] to be recieved.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// The [Connection State] must be in the [CONNECTED] state to use this
+  /// procedure.
+  /// 
+  /// [HSMS Message]:      HsmsMessage
+  /// [Connection State]:  ConnectionState
+  /// [NOT CONNECTED]:     ConnectionState::NotConnected
+  /// [CONNECTED]:         ConnectionState::Connected
+  fn transmit(
     self: &Arc<Self>,
     message: HsmsMessage,
     reply_expected: bool,
     delay: Duration,
   ) -> Result<Option<HsmsMessage>, Error> {
-    // REPLY: EXPECTED
-    if reply_expected {
-      let error: Error = 'disconnect: {
-        let (receiver, system) = {
-          // OUTBOX: Lock
-          let mut outbox = self.deref().outbox.lock().unwrap();
-          // TX
-          let message_id = message.id;
-          match self.primitive_client.transmit(message.into()) {
-            // TX: Success
-            Ok(_) => {
+    let (receiver, system) = {
+      // OUTBOX: LOCK
+      let outbox_lock = if reply_expected {Some(self.deref().outbox.lock().unwrap())} else {None};
+      // TX
+      let message_id = message.id;
+      match self.primitive_client.transmit(message.into()) {
+        // TX: Success
+        Ok(()) => {
+          match outbox_lock {
+            // REPLY NOT EXPECTED: Finish
+            None => return Ok(None),
+            // REPLY EXPECTED
+            Some(mut outbox) => {
               // OUTBOX: Create Transaction
               let (sender, receiver) = oneshot::channel::<Option<HsmsMessage>>();
               let system = {
@@ -1766,41 +1782,27 @@ impl HsmsClient {
               };
               outbox.deref_mut().insert(system, (message_id, sender));
               (receiver, system)
-            },
-            // TX: Failure
-            Err(error) => {
-              // TO: NOT CONNECTED
-              break 'disconnect error;
-            },
+            }
           }
-        };
-        // RX
-        let rx_result = receiver.recv_timeout(delay);
-        // OUTBOX: Remove Transaction
-        let mut outbox = self.outbox.lock().unwrap();
-        outbox.deref_mut().remove(&system);
-        match rx_result {
-          // RX: Success
-          Ok(rx_message) => return Ok(rx_message),
-          // RX: Failure
-          Err(_e) => return Ok(None),
-        }
-      };
-      self.disconnect()?;
-      Err(error)
-    }
-    // REPLY: NOT EXPECTED
-    else {
-      // TX
-      match self.primitive_client.transmit(message.into()) {
-        Ok(_) => Ok(None),
+        },
+        // TX: Failure
         Err(error) => {
-          // TX: Failure
-          // TO: NOT CONNECTED
-          self.disconnect()?;
-          Err(error)
+          // TO: NOT CONNECTED, NOT SELECTED
+          let _ = self.disconnect();
+          return Err(error)
         },
       }
+    };
+    // RX
+    let rx_result = receiver.recv_timeout(delay);
+    // OUTBOX: Remove Transaction
+    let mut outbox = self.outbox.lock().unwrap();
+    outbox.deref_mut().remove(&system);
+    match rx_result {
+      // RX: Success
+      Ok(rx_message) => return Ok(rx_message),
+      // RX: Failure
+      Err(_e) => return Ok(None),
     }
   }
 
@@ -1857,49 +1859,50 @@ impl HsmsClient {
     message: semi_e5::Message,
   ) -> JoinHandle<Result<Option<semi_e5::Message>, Error>> {
     let clone: Arc<HsmsClient> = self.clone();
-    let reply_expected = message.function % 2 == 1 && message.w;
+    let reply_expected: bool = message.function % 2 == 1 && message.w;
     thread::spawn(move || {
-      'disconnect: {
-        match clone.selection_state.load(Relaxed) {
-          // IS: SELECTED
-          SelectionState::Selected => {
-            // TX: Data Message
-            match clone.tx_handle(
-              HsmsMessage {
-                id,
-                contents: HsmsMessageContents::DataMessage(message),
-              },
-              reply_expected,
-              clone.parameter_settings.t3,
-            )?{
-              // RX: Valid
-              Some(rx_message) => {
-                match rx_message.contents {
-                  HsmsMessageContents::DataMessage(data_message) => return Ok(Some(data_message)),
-                  _ => return Err(Error::from(ErrorKind::InvalidData)),
-                }
-              },
-              // RX: Invalid
-              None => {
-                // Reply Expected
-                if reply_expected {
-                  // TO: NOT CONNECTED
-                  break 'disconnect;
-                  // TODO: HSMS-SS does NOT disconnect when the Data Procedure fails, may require this behavior to be optional.
-                }
-                // Reply Not Expected
-                else {
-                  return Ok(None);
-                }
-              },
-            }
-          },
-          // IS: NOT SELECTED
-          _ => return Err(Error::from(ErrorKind::PermissionDenied)),
-        }
+      match clone.selection_state.load(Relaxed) {
+        // IS: NOT SELECTED
+        SelectionState::NotSelected => return Err(Error::from(ErrorKind::AlreadyExists)),
+        // IS: SELECTED
+        SelectionState::Selected => {
+          // TX: Data Message
+          match clone.transmit(
+            HsmsMessage {
+              id,
+              contents: HsmsMessageContents::DataMessage(message),
+            },
+            reply_expected,
+            clone.parameter_settings.t3,
+          )?{
+            // RX: Response
+            Some(rx_message) => {
+              match rx_message.contents {
+                // RX: Data
+                HsmsMessageContents::DataMessage(data_message) => return Ok(Some(data_message)),
+                // RX: Reject.req
+                HsmsMessageContents::RejectRequest(_type, _reason) => return Err(Error::from(ErrorKind::PermissionDenied)),
+                // RX: Unknown
+                _ => return Err(Error::from(ErrorKind::InvalidData)),
+              }
+            },
+            // RX: No Response
+            None => {
+              // REPLY EXPECTED
+              if reply_expected {
+                // TO: NOT CONNECTED
+                clone.disconnect()?;
+                Err(Error::from(ErrorKind::ConnectionAborted))
+                // TODO: HSMS-SS does NOT disconnect when the Data Procedure fails, may require this behavior to be optional.
+              }
+              // REPLY NOT EXPECTED
+              else {
+                return Ok(None);
+              }
+            },
+          }
+        },
       }
-      clone.disconnect()?;
-      Err(Error::from(ErrorKind::ConnectionAborted))
     })
   }
 
@@ -1957,7 +1960,7 @@ impl HsmsClient {
         match clone.selection_state.load(Relaxed) {
           SelectionState::NotSelected => {
             // TX: Select.req
-            match clone.tx_handle(
+            match clone.transmit(
               HsmsMessage {
                 id,
                 contents: HsmsMessageContents::SelectRequest,
@@ -1965,7 +1968,7 @@ impl HsmsClient {
               true,
               clone.parameter_settings.t6,
             )?{
-              // RX: Valid
+              // RX: Response
               Some(rx_message) => {
                 match rx_message.contents {
                   // RX: Select.rsp
@@ -1981,15 +1984,15 @@ impl HsmsClient {
                       return Err(Error::from(ErrorKind::PermissionDenied))
                     }
                   },
+                  // RX: Reject.req
+                  HsmsMessageContents::RejectRequest(_type, _reason) => return Err(Error::from(ErrorKind::PermissionDenied)),
                   // RX: Unknown
-                  _ => {
-                    return Err(Error::from(ErrorKind::InvalidData))
-                  },
+                  _ => return Err(Error::from(ErrorKind::InvalidData)),
                 }
               },
-              // RX: Invalid
+              // RX: No Response
               None => {
-                // TO: NOT CONNECTED
+                // TO: NOT CONNECTED, NOT SELECTED
                 break 'disconnect;
               },
             }
@@ -2093,35 +2096,36 @@ impl HsmsClient {
   ) -> JoinHandle<Result<(), Error>> {
     let clone: Arc<HsmsClient> = self.clone();
     thread::spawn(move || {
-      'disconnect: {
-        // TX: Linktext.req
-        match clone.tx_handle(
-          HsmsMessage {
-            id: HsmsMessageID {
-              session: 0xFFFF,
-              system,
-            },
-            contents: HsmsMessageContents::LinktestRequest,
+      // TX: Linktest.req
+      match clone.transmit(
+        HsmsMessage {
+          id: HsmsMessageID {
+            session: 0xFFFF,
+            system,
           },
-          true,
-          clone.parameter_settings.t6,
-        )?{
-          // RX: Valid
-          Some(rx_message) => {
-            match rx_message.contents {
-              HsmsMessageContents::LinktestResponse => return Ok(()),
-              _ => return Err(Error::from(ErrorKind::InvalidData)),
-            }
-          },
-          // RX: Invalid
-          None => {
-            // TO: NOT CONNECTED
-            break 'disconnect;
-          },
-        }
+          contents: HsmsMessageContents::LinktestRequest,
+        },
+        true,
+        clone.parameter_settings.t6,
+      )?{
+        // RX: Response
+        Some(rx_message) => {
+          match rx_message.contents {
+            // RX: Linktest.rsp
+            HsmsMessageContents::LinktestResponse => Ok(()),
+            // RX: Reject.req
+            HsmsMessageContents::RejectRequest(_type, _reason) => Err(Error::from(ErrorKind::PermissionDenied)),
+            // RX: Unknown
+            _ => Err(Error::from(ErrorKind::InvalidData)),
+          }
+        },
+        // RX: No Response
+        None => {
+          // TO: NOT CONNECTED, NOT SELECTED
+          clone.disconnect()?;
+          Err(Error::from(ErrorKind::ConnectionAborted))
+        },
       }
-      clone.disconnect()?;
-      Err(Error::from(ErrorKind::ConnectionAborted))
     })
   }
 
@@ -2166,12 +2170,14 @@ impl HsmsClient {
     thread::spawn(move || {
       let _guard = clone.selection_mutex.lock().unwrap();
       match clone.selection_state.load(Relaxed) {
+        // IS: NOT SELECTED
         SelectionState::NotSelected => {
           Err(Error::from(ErrorKind::PermissionDenied))
         },
+        // IS: SELECTED
         SelectionState::Selected => {
           // TX: Separate.req
-          clone.tx_handle(
+          clone.transmit(
             HsmsMessage {
               id,
               contents: HsmsMessageContents::SeparateRequest,
@@ -2179,6 +2185,7 @@ impl HsmsClient {
             false,
             clone.parameter_settings.t6,
           )?;
+          // TO: NOT SELECTED
           clone.selection_state.store(SelectionState::NotSelected, Relaxed);
           Ok(())
         },
