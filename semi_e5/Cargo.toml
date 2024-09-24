@@ -2,10 +2,10 @@
 
 # Package
 name = "semi_e5"
-version = "0.1.0"
+version = "0.2.0"
 description = "SEMI Equipment Communications Standard 2 - Message Content"
 categories = ["network-programming"]
-keywords = ["secs", "semi", "presentation", "protocol", "network"]
+keywords = ["secs", "semi", "encoding", "network", "protocol"]
 
 # Authorship
 authors = ["Nathaniel Hardesty"]

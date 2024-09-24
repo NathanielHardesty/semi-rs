@@ -2,10 +2,10 @@
 
 # Package
 name = "semi_e37"
-version = "0.1.1"
+version = "0.2.0"
 description = "High-Speed SECS Message Services"
 categories = ["network-programming"]
-keywords = ["hsms", "semi", "session", "protocol", "network"]
+keywords = ["hsms", "semi", "trasaction", "network", "protocol"]
 
 # Authorship
 authors = ["Nathaniel Hardesty"]
@@ -23,8 +23,8 @@ rust-version = "1.82"
 [dependencies]
 
 # semi_e5 is MIT
-#semi_e5 = "0.1.0"
-semi_e5 = {path = "../semi_e5", version = "0.1.0"}
+#semi_e5 = "0.2.0"
+semi_e5 = {path = "../semi_e5"}
 
 # atomic is MIT or Apache-2.0
 atomic = "0.6.0"

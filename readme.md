@@ -44,23 +44,15 @@ subject to change, as it is only provided for explanatory purposes.
 
 ### HIGH-SPEED SECS MESSAGE SERVICES ([HSMS])
 
--------------------------------------------------------------------------------
-
 [![crates.io](https://img.shields.io/crates/v/semi_e37.svg)](https://crates.io/crates/semi_e37)
 [![crates.io](https://img.shields.io/crates/d/semi_e37.svg)](https://crates.io/crates/semi_e37)
 
-**Based on [SEMI E37]**
-
--------------------------------------------------------------------------------
-
-[HSMS] is a protocol designed to facilitate the reliable transmission of
-messages between semiconductor equipment over TCP/IP.
+Based on **[SEMI E37]**, [HSMS] is a protocol designed to facilitate the
+reliable transmission of messages between semiconductor equipment over TCP/IP.
 
 -------------------------------------------------------------------------------
 
 ### PLANNED TRANSACTION LAYER PROTOCOLS
-
--------------------------------------------------------------------------------
 
 - SEMI Equipment Communications Standard 1 Message Transfer (SECS-I) - [SEMI E4]
 
@@ -68,17 +60,12 @@ messages between semiconductor equipment over TCP/IP.
 
 ### SEMI EQUIPMENT COMMUNICATIONS STANDARD 2 MESSAGE CONTENT ([SECS-II])
 
--------------------------------------------------------------------------------
-
 [![crates.io](https://img.shields.io/crates/v/semi_e5.svg)](https://crates.io/crates/semi_e5)
 [![crates.io](https://img.shields.io/crates/d/semi_e5.svg)](https://crates.io/crates/semi_e5)
 
-**Based on [SEMI E5]**
-
--------------------------------------------------------------------------------
-
-[SECS-II] is a protocol designed to facilitate a common syntactic and semantic
-message structure used in communications between semiconductor equipment.
+Based on **[SEMI E5]**, [SECS-II] is a protocol designed to facilitate a common
+syntactic and semantic message structure used in communications between
+semiconductor equipment.
 
 -------------------------------------------------------------------------------
 
@@ -90,16 +77,12 @@ message structure used in communications between semiconductor equipment.
 
 ### PLANNED INTEGRATION LAYER PROTOCOLS
 
--------------------------------------------------------------------------------
-
 - Generic Equipment Model (GEM) - [SEMI E30]
 - Object Services (OSS) - [SEMI E39]
 
 ## OPERATION LAYER
 
 ### PLANNED OPERATION LAYER PROTOCOLS
-
--------------------------------------------------------------------------------
 
 - Processing Management (PJM) - [SEMI E40]
 - Carrier Management (CMS) - [SEMI E87]
