@@ -7,9 +7,9 @@ publish = false
 [dependencies]
 
 # semi_e5 is MIT
-#semi_e5 = "0.2.0"
-semi_e5 = {path = "../semi_e5"}
+semi_e5 = "0.2.0"
+#semi_e5 = {path = "../semi_e5"}
 
 # semi_e37 is MIT
-#semi_e37 = "0.2.0"
-semi_e37 = {path = "../semi_e37"}
+semi_e37 = "0.2.0"
+#semi_e37 = {path = "../semi_e37"}
