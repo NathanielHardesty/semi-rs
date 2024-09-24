@@ -12,6 +12,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d818003e740b63afc82337e3160717f4f63078720a810b7b903e70a5d1d2994"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
+name = "bytemuck"
+version = "1.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94bbb0ad554ad961ddc5da507a12a29b14e4ae5bda06b19f575a3e6079d2e2ae"
+dependencies = [
+ "bytemuck_derive",
+]
+
+[[package]]
+name = "bytemuck_derive"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc8b54b395f2fcfbb3d90c47b01c7f444d94d05bdeb775811dec868ac3bbc26"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.90"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -320,45 +349,23 @@ checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 name = "secs-test"
 version = "0.1.0"
 dependencies = [
- "semi_e37 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "semi_e5 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "semi_e30"
-version = "0.1.0"
-
-[[package]]
-name = "semi_e37"
-version = "0.1.0"
-dependencies = [
- "oneshot",
- "semi_e5 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "semi_e37",
+ "semi_e5",
 ]
 
 [[package]]
 name = "semi_e37"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683309beab993e855fa916161b79b9da168e63ec0ffd2b8236f82693d8eeb566"
+version = "0.2.0"
 dependencies = [
+ "atomic",
+ "bytemuck",
  "oneshot",
- "semi_e5 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "semi_e5",
 ]
 
 [[package]]
 name = "semi_e5"
-version = "0.1.0"
-dependencies = [
- "encoding",
- "num_enum",
-]
-
-[[package]]
-name = "semi_e5"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54d4a5447a03ceffa5f83def07bcf60600cd3c40bf795072d1734d9ddad9a1da"
+version = "0.2.0"
 dependencies = [
  "encoding",
  "num_enum",
