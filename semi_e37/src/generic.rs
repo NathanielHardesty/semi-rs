@@ -58,6 +58,12 @@
 //! [Selection State]:      SelectionState
 //! [Parameter Settings]:   ParameterSettings
 
+pub use crate::primitive::ConnectionMode;
+
+use crate::{
+  PresentationType,
+  primitive,
+};
 use std::{
   collections::HashMap,
   io::{
@@ -88,12 +94,6 @@ use std::{
 use atomic::Atomic;
 use bytemuck::NoUninit;
 use oneshot::Sender as SendOnce;
-use crate::{
-  PresentationType,
-  primitive,
-};
-
-pub use crate::primitive::ConnectionMode;
 
 /// ## CLIENT
 /// 
