@@ -350,7 +350,7 @@ name = "secs-test"
 version = "0.1.0"
 dependencies = [
  "semi_e37",
- "semi_e5",
+ "semi_e5 0.2.0",
 ]
 
 [[package]]
@@ -360,12 +360,22 @@ dependencies = [
  "atomic",
  "bytemuck",
  "oneshot",
- "semi_e5",
+ "semi_e5 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "semi_e5"
 version = "0.2.0"
+dependencies = [
+ "encoding",
+ "num_enum",
+]
+
+[[package]]
+name = "semi_e5"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b31a95cae25e4787f84ee0597c0aaed4e10b1054cc0dd04e6b215cdaac408fd0"
 dependencies = [
  "encoding",
  "num_enum",
