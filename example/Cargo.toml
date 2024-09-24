@@ -1,8 +1,14 @@
 [package]
+
+# Package
 name = "secs-test"
 version = "0.1.0"
-edition = "2021"
 publish = false
+
+# Rust
+edition = "2021"
+rust-version = "1.82"
+
 
 [dependencies]
 
