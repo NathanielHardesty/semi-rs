@@ -23,7 +23,7 @@
 
 use std::{ascii::Char::*, io::Error, sync::Arc, thread::{self, JoinHandle}, time::Duration};
 use semi_e5::{Item, Message, items::*, messages::*};
-use semi_e37::generic::{ConnectionMode, Client, MessageID, ParameterSettings};
+use semi_e37::generic::{Client, ConnectionMode, MessageID, ParameterSettings, ProcedureCallbacks, SelectStatus, DeselectStatus};
 
 fn main() {
   test_data();
@@ -34,31 +34,66 @@ fn main() {
 }
 
 fn test_data() {
+  // Derive a SECS-II item from raw bytes and print it.
   println!("{:?}", Item::try_from(vec![1, 1, 177, 4, 0, 0, 7, 237]));
+  // Derive a specific SECS-II item with length restrictions from a string and print it.
   let a: semi_e5::items::ErrorText = semi_e5::items::ErrorText::new(vec![CapitalA]).unwrap();
   println!("{:?}", a);
   println!("{:?}", a.read()[0])
 }
 
 fn test_equipment() {
-  // CLIENT
+  // Settings are left as default.
   let parameter_settings: ParameterSettings = ParameterSettings::default();
-  let equipment_client: Arc<Client> = Client::new(parameter_settings);
-  // MAIN LOOP
+  // Callbacks emulating proper equipment behavior in HSMS-SS are used.
+  let procedure_callbacks: ProcedureCallbacks = ProcedureCallbacks {
+    select: Arc::new(|session_id, selection_count| -> SelectStatus {
+      // In HSMS-SS, only a single session may be initiated.
+      if selection_count == 0 {
+        // In HSMS-SS, only a Session ID of 0xFFFF is valid.
+        if session_id == 0xFFFF {
+          SelectStatus::Ok
+        } else {
+          SelectStatus::NotReady
+        }
+      } else {
+        SelectStatus::AlreadyActive
+      }
+    }),
+    deselect: Arc::new(|_session_id, _selection_count| -> DeselectStatus {
+      // In HSMS-SS, the Deselect Procedure is forbidden.
+      DeselectStatus::Busy
+    }),
+    separate: Arc::new(|session_id, _selection_count| -> bool {
+      // In HSMS-SS, only a Session ID of 0xFFFF is valid.
+      session_id == 0xFFFF
+    }),
+  };
+  // The client is spawned.
+  let equipment_client: Arc<Client> = Client::new(
+    parameter_settings,
+    procedure_callbacks,
+  );
+  // The client does not generate valid System Bytes values on its own.
   let mut system: u32 = 0x1000;
+  // A loop is used to maintain a connection until a set number of Linktest Procedures have completed.
   loop {
-    // LINK TEST
+    // The client is instructed to initiate the Linktest Procedure and print the results.
     let link_result: Result<(), Error> = equipment_client.linktest(system).join().unwrap();
-    println!("equipment_client.linktest({:>8X}) : {:?}", system, link_result);
+    println!("equipment_client.linktest   : {:?}", link_result);
+    // If the Linktest Procedure fails, a new connection is formed.
     if link_result.is_err() {
-      // CONNECT
+      // The client is instructed to wait for a connection from the remote entity and print the socket address it connected to.
       let (socket, rx_message) = equipment_client.connect("127.0.0.1:5000").unwrap();
-      println!("equipment_client.connect            : {:?}", socket);
-      // SPAWN RX THREAD
+      println!("equipment_client.connect    : {:?}", socket);
+      // A new thread for responding to Data Messages received by the current connection is spawned.
       let equipment_rx: Arc<Client> = equipment_client.clone();
       let _rx_thread: JoinHandle<()> = thread::spawn(move || {
+        // Incoming Data Messages are handled sequentially.
         for (id, request) in rx_message {
-          println!("equipment_rx request                : {:?}", request);
+          // The incoming Data Message is printed.
+          println!("equipment_rx request        : {:?}", request);
+          // The incoming Data Message is matched with in order to provide an outgoing response.
           let response: Message = match (request.w, request.stream, request.function) {
             (true, 1, 1) => {
               match s1::AreYouThere::try_from(request) {
@@ -195,38 +230,67 @@ fn test_equipment() {
                 text: Some(Item::List(vec![])),
               }
             }
+            // If the client is unable to form a response, the thread is ended.
             _ => {break}
           };
-          println!("equipment_rx response               : {:?}", response.clone());
-          println!("equipment_rx.data                   : {:?}", equipment_rx.data(id, response).join().unwrap());
+          // The outgoing Data Message is printed.
+          println!("equipment_rx response       : {:?}", response.clone());
+          // The client is instructed to initiate the Data Procedure and print the results.
+          println!("equipment_rx.data           : {:?}", equipment_rx.data(id, response).join().unwrap());
         }
       });
     }
+    // The System Bytes value is incremented.
     system += 1;
+    // If a certain number of Linktest Procedures have completed, the loop is exited.
     if system == 0x1020 {break}
+    // A delay of 1 second is used between successive tests of the Linktest Procedure.
     thread::sleep(Duration::from_secs(1));
   }
-  println!("equipment_client.separate           : {:?}", equipment_client.separate(MessageID {system, session: 0xFFFF}).join().unwrap());
-  println!("equipment_client.disconnect         : {:?}", equipment_client.disconnect());
+  // The client is instructed to initiate the Separate Procedure, in order to end the connection correctly according to HSMS-SS.
+  println!("equipment_client.separate   : {:?}", equipment_client.separate(MessageID {system, session: 0xFFFF}).join().unwrap());
+  // The client is instructed to initiate the Disconnect Procedure.
+  println!("equipment_client.disconnect : {:?}", equipment_client.disconnect());
 }
 
 fn test_host() {
-  // CLIENT
+  // Settings are left as default, except for the connection mode, which is active for the HSMS-SS Host.
   let parameter_settings: ParameterSettings = ParameterSettings {
     connect_mode: ConnectionMode::Active,
     ..Default::default()
   };
-  let host_client: Arc<Client> = Client::new(parameter_settings);
-  // CONNECT
+  // Callbacks emulating proper host behavior in HSMS-SS are used.
+  let procedure_callbacks: ProcedureCallbacks = ProcedureCallbacks {
+    select: Arc::new(|_session_id, _selection_count| -> SelectStatus {
+      // In HSMS-SS, only the Host may initiate the Select Procedure.
+      SelectStatus::NotReady
+    }),
+    deselect: Arc::new(|_session_id, _selection_count| -> DeselectStatus {
+      // In HSMS-SS, the Deselect Procedure is forbidden.
+      DeselectStatus::Busy
+    }),
+    separate: Arc::new(|session_id, _selection_count| -> bool {
+      // In HSMS-SS, only a Session ID of 0xFFFF is valid.
+      session_id == 0xFFFF
+    }),
+  };
+  // The client is spawned.
+  let host_client: Arc<Client> = Client::new(
+    parameter_settings,
+    procedure_callbacks,
+  );
+  // The client is instructed to connect to the remote entity and print the socket address it connected to.
   let (socket, _) = host_client.connect("127.0.0.1:5000").unwrap();
-  println!("host_client.connect                 : {:?}", socket);
+  println!("host_client.connect         : {:?}", socket);
+  // A delay of 2 seconds is used prior to initiating the Select Procedure.
   thread::sleep(Duration::from_millis(2000));
-  let mut system: u32 = 0;
-  // SELECT
-  println!("host_client.select                  : {:?}", host_client.select(MessageID{session: 0, system}).join().unwrap());
-  system += 1;
-  // DATA LOOP
+  // The client is instructed to initiate the Select Procedure and print the results.
+  println!("host_client.select          : {:?}", host_client.select(MessageID{session: 0xFFFF, system: 0}).join().unwrap());
+  // The client does not generate valid System Bytes values on its own.
+  let mut system: u32 = 1;
+  // A loop is used to continuously test the Data Procedure until the connection is dropped.
   loop {
+    // The client is instructed to initiate the Data Procedure and print the results.
     let data_result: Result<Option<Message>, Error> = host_client.data(
       MessageID {
         session: 0,
@@ -239,11 +303,16 @@ fn test_host() {
         text: None,
       }
     ).join().unwrap();
-    println!("host_client.data                    : {:?}", data_result);
+    println!("host_client.data            : {:?}", data_result);
+    // If the Data Procedure fails, most likely because the connection was dropped, the loop exits.
     if data_result.is_err() {break}
+    // The System Bytes value is incremented.
     system += 1;
+    // A delay of 1 second is used between successive tests of the Data Procedure.
     thread::sleep(Duration::from_secs(1));
   }
-  println!("host_client.linktest                : {:?}", host_client.linktest(system).join().unwrap());
-  println!("host_client.disconnect              : {:?}", host_client.disconnect());
+  // The client is instructed to initiate the Linktest Procedure, in order to see what error occurs after the connection is dropped.
+  println!("host_client.linktest        : {:?}", host_client.linktest(system).join().unwrap());
+  // The client is instructed to initiate the Disconnect Procedure, in case the loop exited due to a malformed Data Procedure response.
+  println!("host_client.disconnect      : {:?}", host_client.disconnect());
 }

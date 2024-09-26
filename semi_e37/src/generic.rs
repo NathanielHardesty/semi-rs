@@ -18,8 +18,8 @@
 //!   - [Linktest.rsp]
 //!   - [Reject.req]
 //!   - [Separate.req]
-//! - Create an [Client] by providing the [New Client] function with
-//!   [Parameter Settings].
+//! - Create a [Client] by providing the [New Client] function with
+//!   [Parameter Settings] and [Procedure Callbacks].
 //! - Manage the [Connection State] with the [Connect Procedure] and
 //!   [Disconnect Procedure].
 //! - Manage the [Selection State] with the [Select Procedure],
@@ -28,7 +28,7 @@
 //!   [Connect Procedure].
 //! - Test connection integrity with the [Linktest Procedure].
 //! - Send [Data Message]s with the [Data Procedure].
-//! - Send [Reject.req] messages [Reject Procedure].
+//! - Send [Reject.req] messages with the [Reject Procedure].
 //! 
 //! [HSMS]:                 crate
 //! [Generic Services]:     crate::generic
@@ -57,6 +57,7 @@
 //! [Connection State]:     crate::primitive::ConnectionState
 //! [Selection State]:      SelectionState
 //! [Parameter Settings]:   ParameterSettings
+//! [Procedure Callbacks]:  ProcedureCallbacks
 
 pub use crate::primitive::ConnectionMode;
 
@@ -103,12 +104,74 @@ use oneshot::Sender as SendOnce;
 /// [HSMS]:             crate
 /// [Generic Services]: crate::generic
 pub struct Client {
+  /// ### PARAMETER SETTINGS
+  /// 
+  /// Stores immutable [Parameter Settings] provided with the [New Client]
+  /// function.
+  /// 
+  /// [New Client]:         Client::new
+  /// [Parameter Settings]: ParameterSettings
   parameter_settings: ParameterSettings,
+
+  /// ### PROCEDURE CALLBACKS
+  /// 
+  /// Stores [Procedure Callbacks] used when acting as the responding entity in
+  /// the [Select Procedure], [Deselect Procedure], and [Separate Procedure].
+  /// 
+  /// [Procedure Callbacks]: ProcedureCallbacks
+  /// [Select Procedure]:    Client::select
+  /// [Deselect Procedure]:  Client::deselect
+  /// [Separate Procedure]:  Client::separate
+  procedure_callbacks: ProcedureCallbacks,
+
+  /// ### PRIMITIVE CLIENT
+  /// 
+  /// The [Primitive Client] responsible for handling the [Connection State] by
+  /// undertaking part of the [Connect Procedure] and [Disconnect Procedure],
+  /// and for providing and transmitting [Primitive Message]s.
+  /// 
+  /// [Primitive Client]:     primitive::Client
+  /// [Connection State]:     primitive::ConnectionState
+  /// [Primitive Message]:    primitive::Message
+  /// [Connect Procedure]:    Client::connect
+  /// [Disconnect Procedure]: Client::disconnect
   primitive_client: Arc<primitive::Client>,
-  selection_state: Atomic<SelectionState>,
+
+  /// ### SELECTION MUTEX
+  /// 
+  /// Locks the editing of the [Selection State] and the Selection Count for
+  /// critical sections involving the [Select Procedure], [Deselect Procedure],
+  /// [Separate Procedure], and [Disconnect Procedure].
+  /// 
+  /// [Disconnect Procedure]: Client::disconnect
+  /// [Select Procedure]:     Client::select
+  /// [Deselect Procedure]:   Client::deselect
+  /// [Separate Procedure]:   Client::separate
+  /// [Selection State]:      SelectionState
   selection_mutex: Mutex<()>,
-  outbox: Mutex<HashMap<u32, (MessageID, SendOnce<Option<Message>>)>>,
-  system: Mutex<u32>,
+
+  /// ### SELECTION COUNT
+  /// 
+  /// Provides flexibility in determining when to move between the [SELECTED]
+  /// and [NOT SELECTED] states, by using a reference count of the number of
+  /// selections which have successfully completed.
+  /// 
+  /// [NOT SELECTED]: SelectionState::NotSelected
+  /// [SELECTED]:     SelectionState::Selected
+  selection_count: Atomic<u16>,
+
+  /// ### SELECTION STATE
+  /// 
+  /// The current [Selection State].
+  /// 
+  /// [Selection State]: SelectionState
+  selection_state: Atomic<SelectionState>,
+
+  /// ### OUTBOX
+  /// 
+  /// The list of open transactions initiated client-side which have not yet
+  /// received a reply or timed out.
+  outbox: Mutex<HashMap<MessageID, SendOnce<Option<Message>>>>,
 }
 
 /// ## CONNECTION PROCEDURES
@@ -128,7 +191,6 @@ pub struct Client {
 impl Client {
   /// ### NEW CLIENT
   /// 
-  /// 
   /// Creates a [Client] in the [NOT CONNECTED] state, ready to initiate the
   /// [Connect Procedure].
   /// 
@@ -136,15 +198,17 @@ impl Client {
   /// [Connect Procedure]: Client::connect
   /// [NOT CONNECTED]:     primitive::ConnectionState::NotConnected
   pub fn new(
-    parameter_settings: ParameterSettings
+    parameter_settings: ParameterSettings,
+    procedure_callbacks: ProcedureCallbacks,
   ) -> Arc<Self> {
     Arc::new(Client {
       parameter_settings,
+      procedure_callbacks,
       primitive_client: primitive::Client::new(),
-      selection_state:  Default::default(),
-      selection_mutex:  Default::default(),
-      outbox:           Default::default(),
-      system:           Default::default(),
+      selection_mutex: Default::default(),
+      selection_count: Default::default(),
+      selection_state: Default::default(),
+      outbox: Default::default(),
     })
   }
 
@@ -227,9 +291,8 @@ impl Client {
     let result: Result<(), Error> = self.primitive_client.disconnect();
     // TO: NOT SELECTED
     let _guard = self.selection_mutex.lock().unwrap();
-    if let SelectionState::Selected = self.selection_state.load(Relaxed) {
-      self.selection_state.store(SelectionState::NotSelected, Relaxed);
-    }
+    self.selection_state.store(SelectionState::NotSelected, Relaxed);
+    self.selection_count.store(0, Relaxed);
     // Finish
     result
   }
@@ -278,43 +341,46 @@ impl Client {
   /// 
   /// - [NOT SELECTED] - The [Client] will respond by transmitting a
   ///   [Reject.req] message, rejecting the [HSMS Data Procedure] and
-  ///   completing the [HSMS Reject Procedure].
+  ///   completing the [Reject Procedure].
   /// - [SELECTED], Primary [Data Message] - The [Client] will send the
   ///   [Data Message] to the hook provided by the [Connect Procedure].
   /// - [SELECTED], Response [Data Message] - The [Client] will respond by
   ///   correllating the message to a previously sent Primary [Data Message],
   ///   finishing a previously initiated [Data Procedure] if successful,
-  ///   or if unsuccessful by transmitting a [Reject.req] message, rejecting
-  ///   the [Data Procedure] and completing the [Reject Procedure].
+  ///   or by transmitting a [Reject.req] message, rejecting the
+  ///   [Data Procedure] and completing the [Reject Procedure] if unsuccessful.
   /// 
   /// -------------------------------------------------------------------------
   /// 
   /// #### [Select.req]:
   /// 
-  /// - [NOT SELECTED] - The [Client] will respond with a [Select.rsp]
-  ///   accepting and completing the [Select Procedure].
-  /// - [SELECTED] - The [Client] will respond with a [Select.rsp] message
-  ///   rejecting the [Select Procedure].
+  /// - The [Client] will respond by calling the [Select Procedure Callback].
   /// 
   /// -------------------------------------------------------------------------
   /// 
   /// #### [Select.rsp]:
   /// 
-  /// - [NOT SELECTED] - The [Client] will complete the [Select Procedure].
-  /// - [SELECTED] - The [Client] will respond with a [Reject.req] message,
-  ///   completing the [Reject Procedure].
+  /// - The [Client] will respond by correllating the message to a previously
+  ///   send [Select.req], finishing a previously initiated [Select Procedure]
+  ///   if successful, or by transmitting a [Reject.req] message, rejecting the
+  ///   [Select Procedure] and completing the [Reject Procedure] if
+  ///   unsuccessful.
   /// 
   /// -------------------------------------------------------------------------
   /// 
   /// #### [Deselect.req]:
   /// 
-  /// - Not yet implemented.
+  /// - The [Client] will respond by calling the [Deselect Procedure Callback].
   /// 
   /// -------------------------------------------------------------------------
   /// 
   /// #### [Deselect.rsp]:
   /// 
-  /// - Not yet implemented.
+  /// - The [Client] will respond by correllating the message to a previously
+  ///   send [Deselect.req], finishing a previously initiated
+  ///   [Deselect Procedure] if successful, or by transmitting a [Reject.req]
+  ///   message, rejecting the [Deselect Procedure] and completing the
+  ///   [Reject Procedure] if unsuccessful.
   /// 
   /// -------------------------------------------------------------------------
   /// 
@@ -336,14 +402,16 @@ impl Client {
   /// 
   /// #### [Reject.req]:
   /// 
-  /// - Not yet implemented.
+  /// - The [Client] will respond by correlating the message to a previously
+  ///   sent message which is awaiting a reply, aborting a previously initiated
+  ///   [Data Procedure], [Select Procedure], [Deselect Procedure], or
+  ///   [Linktest Procedure], and completing the [Reject Procedure].
   /// 
   /// -------------------------------------------------------------------------
   /// 
   /// #### [Separate.req]:
   /// 
-  /// - [NOT SELECTED] - The [Client] will not do anything.
-  /// - [SELECTED] - The [Client] will complete the [Separate Procedure].
+  /// - The [Client] will respond by calling the [Separate Procedure Callback].
   /// 
   /// -------------------------------------------------------------------------
   /// 
@@ -352,34 +420,37 @@ impl Client {
   /// - The [Client] will respond by transmitting a [Reject.req] message,
   ///   completing the [Reject Procedure]. 
   /// 
-  /// [Primitive Message]:  primitive::Message
-  /// [Connection State]:   primitive::ConnectionState
-  /// [NOT CONNECTED]:      primitive::ConnectionState::NotConnected
-  /// [CONNECTED]:          primitive::ConnectionState::Connected
-  /// [Message]:            Message
-  /// [Message Contents]:   MessageContents
-  /// [Data Message]:       MessageContents::DataMessage
-  /// [Select.req]:         MessageContents::SelectRequest
-  /// [Select.rsp]:         MessageContents::SelectResponse
-  /// [Deselect.req]:       MessageContents::DeselectRequest
-  /// [Deselect.rsp]:       MessageContents::DeselectResponse
-  /// [Linktest.req]:       MessageContents::LinktestRequest
-  /// [Linktest.rsp]:       MessageContents::LinktestResponse
-  /// [Reject.req]:         MessageContents::RejectRequest
-  /// [Separate.req]:       MessageContents::SeparateRequest
-  /// [Client]:             Client
-  /// [Connect Procedure]:  Client::connect
-  /// [Select Procedure]:   Client::select
-  /// [Data Procedure]:     Client::data
-  /// [Deselect Procedure]: Client::deselect
-  /// [Linktest Procedure]: Client::linktest
-  /// [Separate Procedure]: Client::separate
-  /// [Reject Procedure]:   Client::reject
-  /// [Selection State]:    SelectionState
-  /// [NOT SELECTED]:       SelectionState::NotSelected
-  /// [SELECTED]:           SelectionState::Selected
-  /// [SELECT INITIATED]:   SelectionState::SelectInitiated
-  /// [DESELECT INITIATED]: SelectionState::DeselectInitiated
+  /// [Primitive Message]:           primitive::Message
+  /// [Connection State]:            primitive::ConnectionState
+  /// [NOT CONNECTED]:               primitive::ConnectionState::NotConnected
+  /// [CONNECTED]:                   primitive::ConnectionState::Connected
+  /// [Client]:                      Client
+  /// [Connect Procedure]:           Client::connect
+  /// [Select Procedure]:            Client::select
+  /// [Data Procedure]:              Client::data
+  /// [Deselect Procedure]:          Client::deselect
+  /// [Linktest Procedure]:          Client::linktest
+  /// [Separate Procedure]:          Client::separate
+  /// [Reject Procedure]:            Client::reject
+  /// [Selection State]:             SelectionState
+  /// [NOT SELECTED]:                SelectionState::NotSelected
+  /// [SELECTED]:                    SelectionState::Selected
+  /// [SELECT INITIATED]:            SelectionState::SelectInitiated
+  /// [DESELECT INITIATED]:          SelectionState::DeselectInitiated
+  /// [Select Procedure Callback]:   ProcedureCallbacks::select
+  /// [Deselect Procedure Callback]: ProcedureCallbacks::deselect
+  /// [Separate Procedure Callback]: ProcedureCallbacks::separate
+  /// [Message]:                     Message
+  /// [Message Contents]:            MessageContents
+  /// [Data Message]:                MessageContents::DataMessage
+  /// [Select.req]:                  MessageContents::SelectRequest
+  /// [Select.rsp]:                  MessageContents::SelectResponse
+  /// [Deselect.req]:                MessageContents::DeselectRequest
+  /// [Deselect.rsp]:                MessageContents::DeselectResponse
+  /// [Linktest.req]:                MessageContents::LinktestRequest
+  /// [Linktest.rsp]:                MessageContents::LinktestResponse
+  /// [Reject.req]:                  MessageContents::RejectRequest
+  /// [Separate.req]:                MessageContents::SeparateRequest
   fn receive(
     self: &Arc<Self>,
     rx_receiver: Receiver<primitive::Message>,
@@ -402,30 +473,23 @@ impl Client {
                 // RX: Response Data Message
                 else {
                   // OUTBOX: Find Transaction
-                  let mut outbox = self.outbox.lock().unwrap();
-                  let mut optional_transaction: Option<u32> = None;
-                  for (outbox_id, (message_id, _)) in outbox.deref() {
-                    if *message_id == rx_message.id {
-                      optional_transaction = Some(*outbox_id);
-                      break;
+                  match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
+                    // OUTBOX: Transaction Not Found
+                    None => {
+                      // TX: Reject.req 
+                      if self.primitive_client.transmit(Message {
+                        id: rx_message.id,
+                        contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
+                      }.into()).is_err() {break}
                     }
-                  }
-                  // OUTBOX: Transaction Found
-                  if let Some(transaction) = optional_transaction {
-                    // OUTBOX: Complete Transaction
-                    let (_, sender) = outbox.deref_mut().remove(&transaction).unwrap();
-                    sender.send(Some(Message{
-                      id: rx_message.id,
-                      contents: MessageContents::DataMessage(data),
-                    })).unwrap();
-                  }
-                  // OUTBOX: Transaction Not Found
-                  else {
-                    // TX: Reject.req 
-                    if self.primitive_client.transmit(Message {
-                      id: rx_message.id,
-                      contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
-                    }.into()).is_err() {break}
+                    // OUTBOX: Transaction Found
+                    Some(sender) => {
+                      // OUTBOX: Complete Transaction
+                      sender.send(Some(Message {
+                        id: rx_message.id,
+                        contents: MessageContents::DataMessage(data),
+                      })).unwrap();
+                    }
                   }
                 }
               },
@@ -438,94 +502,111 @@ impl Client {
                 }.into()).is_err() {break}
               },
             }
-          },
+          }
           // RX: Select.req
           MessageContents::SelectRequest => {
             match self.selection_mutex.try_lock() {
               Ok(_guard) => {
-                match self.selection_state.load(Relaxed) {
-                  // IS: NOT SELECTED
-                  SelectionState::NotSelected => {
-                    // TX: Select.rsp Success
-                    if self.primitive_client.transmit(Message {
-                      id: rx_message.id,
-                      contents: MessageContents::SelectResponse(SelectStatus::Success as u8),
-                    }.into()).is_err() {break};
-                    // TO: SELECTED
-                    self.selection_state.store(SelectionState::Selected, Relaxed);
-                  },
-                  // IS: SELECTED
-                  SelectionState::Selected => {
-                    // TX: Select.rsp Already Active
-                    if self.primitive_client.transmit(Message {
-                      id: rx_message.id,
-                      contents: MessageContents::SelectResponse(SelectStatus::AlreadyActive as u8),
-                    }.into()).is_err() {break};
-                  },
-                  // IS: SELECT INITIATED
-                  // TODO: Find way to reimplement this under the current scheme.
-                  /*SelectionState::SelectInitiated(session_id) => {
-                    // RX: Valid Simultaneous Select
-                    if rx_message.id.session == *session_id {
-                      // TX: Select.rsp Success
-                      if self.primitive_client.transmit(HsmsMessage {
-                        id: rx_message.id,
-                        contents: HsmsMessageContents::SelectResponse(SelectStatus::Success as u8),
-                      }.into()).is_err() {break};
-                    }
-                    // RX: Invalid Simultaneous Select
-                    else {
-                      // TX: Select.rsp Already Active
-                      if self.primitive_client.transmit(HsmsMessage {
-                        id: rx_message.id,
-                        contents: HsmsMessageContents::SelectResponse(SelectStatus::AlreadyActive as u8),
-                      }.into()).is_err() {break};
-                    }
-                  },*/
+                // CALLBACK
+                let selection_count = self.selection_count.load(Relaxed);
+                let select_status = (self.procedure_callbacks.select)(rx_message.id.session, selection_count);
+                // CALLBACK: SUCCESS
+                if let SelectStatus::Ok = select_status {
+                  // SELECTION COUNT + 1
+                  self.selection_count.store(selection_count + 1, Relaxed);
+                  // TO: SELECTED
+                  self.selection_state.store(SelectionState::Selected, Relaxed);
                 }
+                // TX: Select.rsp
+                if self.primitive_client.transmit(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::SelectResponse(select_status as u8),
+                }.into()).is_err() {break};
               },
               Err(_) => {
-                // Todo: probably appropriate to put something here, maybe to do with the simulatenous select procedure?
+                // TODO: probably appropriate to put something here, maybe to do with the simulatenous select procedure?
               },
             }
-          },
+          }
           // RX: Select.rsp
           MessageContents::SelectResponse(select_status) => {
             // OUTBOX: Find Transaction
-            let mut outbox = self.outbox.lock().unwrap();
-            let mut optional_transaction: Option<u32> = None;
-            for (outbox_id, (message_id, _)) in outbox.deref() {
-              if *message_id == rx_message.id {
-                optional_transaction = Some(*outbox_id);
-                break;
+            match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
+              // OUTBOX: Transaction Not Found
+              None => {
+                // TX: Reject.req 
+                if self.primitive_client.transmit(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
+                }.into()).is_err() {break}
+              }
+              // OUTBOX: Transaction Found
+              Some(sender) => {
+                // OUTBOX: Complete Transaction
+                sender.send(Some(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::SelectResponse(select_status),
+                })).unwrap();
               }
             }
-            // OUTBOX: Transaction Found
-            if let Some(transaction) = optional_transaction {
-              // OUTBOX: Complete Transaction
-              let (_, sender) = outbox.deref_mut().remove(&transaction).unwrap();
-              sender.send(Some(Message{
-                id: rx_message.id,
-                contents: MessageContents::SelectResponse(select_status),
-              })).unwrap();
-            }
-            // OUTBOX: Transaction Not Found
-            else {
-              // TX: Reject.req
-              if self.primitive_client.transmit(Message {
-                id: rx_message.id,
-                contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
-              }.into()).is_err() {break}
-            }
-          },
+          }
           // RX: Deselect.req
           MessageContents::DeselectRequest => {
-            todo!()
-          },
+            match self.selection_mutex.try_lock() {
+              Ok(_guard) => {
+                // CALLBACK
+                let selection_count = self.selection_count.load(Relaxed);
+                if selection_count > 0 {
+                  let deselect_status = (self.procedure_callbacks.deselect)(rx_message.id.session, selection_count);
+                  // CALLBACK: SUCCESS
+                  if let DeselectStatus::Ok = deselect_status {
+                    // SELECTION COUNT - 1
+                    self.selection_count.store(selection_count - 1, Relaxed);
+                    // TO: NOT SELECTED
+                    if self.selection_count.load(Relaxed) == 0 {
+                      self.selection_state.store(SelectionState::NotSelected, Relaxed);
+                    }
+                  }
+                  // TX: Deselect.rsp
+                  if self.primitive_client.transmit(Message {
+                    id: rx_message.id,
+                    contents: MessageContents::DeselectResponse(deselect_status as u8),
+                  }.into()).is_err() {break};
+                } else {
+                  // TX: Deselect.rsp
+                  if self.primitive_client.transmit(Message {
+                    id: rx_message.id,
+                    contents: MessageContents::SelectResponse(DeselectStatus::NotEstablished as u8),
+                  }.into()).is_err() {break};
+                }
+              },
+              Err(_) => {
+                // TODO: probably appropriate to put something here, maybe to do with the simulatenous deselect procedure?
+              },
+            }
+          }
           // RX: Deselect.rsp
-          MessageContents::DeselectResponse(_deselect_status) => {
-            todo!()
-          },
+          MessageContents::DeselectResponse(deselect_status) => {
+            // OUTBOX: Find Transaction
+            match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
+              // OUTBOX: Transaction Not Found
+              None => {
+                // TX: Reject.req 
+                if self.primitive_client.transmit(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
+                }.into()).is_err() {break}
+              }
+              // OUTBOX: Transaction Found
+              Some(sender) => {
+                // OUTBOX: Complete Transaction
+                sender.send(Some(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::DeselectResponse(deselect_status),
+                })).unwrap();
+              }
+            }
+          }
           // RX: Linktest.req
           MessageContents::LinktestRequest => {
             // TX: Linktest.rsp
@@ -533,59 +614,70 @@ impl Client {
               id: rx_message.id,
               contents: MessageContents::LinktestResponse,
             }.into()).is_err() {break};
-          },
+          }
           // RX: Linktest.rsp
           MessageContents::LinktestResponse => {
             // OUTBOX: Find Transaction
-            let mut outbox = self.outbox.lock().unwrap();
-            let mut optional_transaction: Option<u32> = None;
-            for (outbox_id, (message_id, _)) in outbox.deref() {
-              if *message_id == rx_message.id {
-                optional_transaction = Some(*outbox_id);
-                break;
+            match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
+              // OUTBOX: Transaction Not Found
+              None => {
+                // TX: Reject.req 
+                if self.primitive_client.transmit(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
+                }.into()).is_err() {break}
+              }
+              // OUTBOX: Transaction Found
+              Some(sender) => {
+                // OUTBOX: Complete Transaction
+                sender.send(Some(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::LinktestResponse,
+                })).unwrap();
               }
             }
-            // OUTBOX: Transaction Found
-            if let Some(transaction) = optional_transaction {
-              // OUTBOX: Complete Transaction
-              let (_, sender) = outbox.deref_mut().remove(&transaction).unwrap();
-              sender.send(Some(rx_message)).unwrap();
-            }
-            // OUTBOX: Transaction Not Found
-            else {
-              // TX: Reject.req
-              if self.primitive_client.transmit(Message {
-                id: rx_message.id,
-                contents: MessageContents::RejectRequest(SessionType::LinktestRequest as u8, RejectReason::TransactionNotOpen as u8),
-              }.into()).is_err() {break}
-            }
-          },
+          }
           // RX: Reject.req
-          MessageContents::RejectRequest(_message_type, _reason_code) => {
+          MessageContents::RejectRequest(ps_type, reason_code) => {
             // OUTBOX: Find Transaction
-            let mut outbox = self.outbox.lock().unwrap();
-            let mut optional_transaction: Option<u32> = None;
-            for (outbox_id, (message_id, _)) in outbox.deref() {
-              if *message_id == rx_message.id {
-                optional_transaction = Some(*outbox_id);
-                break;
+            match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
+              // OUTBOX: Transaction Not Found
+              None => {
+                // TX: Reject.req 
+                if self.primitive_client.transmit(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
+                }.into()).is_err() {break}
+              }
+              // OUTBOX: Transaction Found
+              Some(sender) => {
+                // OUTBOX: Complete Transaction
+                sender.send(Some(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::RejectRequest(ps_type, reason_code),
+                })).unwrap();
               }
             }
-            // OUTBOX: Transaction Found
-            if let Some(transaction) = optional_transaction {
-              // OUTBOX: Reject Transaction
-              let (_, sender) = outbox.deref_mut().remove(&transaction).unwrap();
-              sender.send(None).unwrap();
-            }
-          },
+          }
           // RX: Separate.req
           MessageContents::SeparateRequest => {
             let _guard: std::sync::MutexGuard<'_, ()> = self.selection_mutex.lock().unwrap();
-            if let SelectionState::Selected = self.selection_state.load(Relaxed) {
-              self.selection_state.store(SelectionState::NotSelected, Relaxed);
+            // CALLBACK
+            let selection_count = self.selection_count.load(Relaxed);
+            if selection_count > 0 {
+              let decrement = (self.procedure_callbacks.separate)(rx_message.id.session, selection_count);
+              // CALLBACK: SUCCESS
+              if decrement {
+                // SELECTION COUNT - 1
+                self.selection_count.store(selection_count - 1, Relaxed);
+                // TO: NOT SELECTED
+                if self.selection_count.load(Relaxed) == 0 {
+                  self.selection_state.store(SelectionState::NotSelected, Relaxed);
+                }
+              }
             }
-          },
-        },
+          }
+        }
         Err(reject_reason) => {
           // TX: Reject.req
           if self.primitive_client.transmit(Message {
@@ -598,11 +690,11 @@ impl Client {
               _ => primitive_header.session_type,
             }, reject_reason as u8),
           }.into()).is_err() {break}
-        },
+        }
       }
     }
     // OUTBOX: CLEAR
-    for (_, (_, sender)) in self.outbox.lock().unwrap().deref_mut().drain() {
+    for (_, sender) in self.outbox.lock().unwrap().deref_mut().drain() {
       let _ = sender.send(None);
     }
   }
@@ -610,30 +702,36 @@ impl Client {
   /// ### TRANSMIT PROCEDURE
   /// **Based on SEMI E37-1109§7.2**
   /// 
-  /// Serializes a [Message] and transmits it over the TCP/IP connection.
-  /// If a reply is expected, this function will then wait up to the time
-  /// specified for the requisite response [Message] to be recieved.
+  /// Serializes a [Message] and transmits it over the TCP/IP connection and
+  /// waiting up to the time specified for the requisite response [Message] to
+  /// be recieved if it is necessary to do so.
   /// 
   /// -------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state to use this
   /// procedure.
   /// 
-  /// [Message]:          Message
-  /// [Connection State]: primitive::ConnectionState
-  /// [NOT CONNECTED]:    primitive::ConnectionState::NotConnected
-  /// [CONNECTED]:        primitive::ConnectionState::Connected
+  /// If the transmission of the message over the TCP/IP connection fails, the
+  /// [Client] will consider it a communications failure and initiate the
+  /// [Disconnect Procedure].
+  /// 
+  /// [Connection State]:     primitive::ConnectionState
+  /// [NOT CONNECTED]:        primitive::ConnectionState::NotConnected
+  /// [CONNECTED]:            primitive::ConnectionState::Connected
+  /// [Client]:               Client
+  /// [Disconnect Procedure]: Client::disconnect
+  /// [Message]:              Message
   fn transmit(
     self: &Arc<Self>,
     message: Message,
     reply_expected: bool,
     delay: Duration,
   ) -> Result<Option<Message>, Error> {
-    let (receiver, system) = {
+    let message_id: MessageID = message.id;
+    let receiver: oneshot::Receiver<Option<Message>> = {
       // OUTBOX: LOCK
       let outbox_lock = if reply_expected {Some(self.deref().outbox.lock().unwrap())} else {None};
       // TX
-      let message_id = message.id;
       match self.primitive_client.transmit(message.into()) {
         // TX: Success
         Ok(()) => {
@@ -644,36 +742,33 @@ impl Client {
             Some(mut outbox) => {
               // OUTBOX: Create Transaction
               let (sender, receiver) = oneshot::channel::<Option<Message>>();
-              let system = {
-                let mut system_guard = self.deref().system.lock().unwrap();
-                let system_counter = system_guard.deref_mut();
-                let system = *system_counter;
-                *system_counter += 1;
-                system
-              };
-              outbox.deref_mut().insert(system, (message_id, sender));
-              (receiver, system)
+              match outbox.deref_mut().try_insert(message_id, sender) {
+                Err(_error) => return Err(Error::from(ErrorKind::AlreadyExists)),
+                Ok(_sender) => receiver,
+              }
             }
           }
         },
         // TX: Failure
         Err(error) => {
-          // TO: NOT CONNECTED, NOT SELECTED
+          // DISCONNECT
           let _ = self.disconnect();
           return Err(error)
         },
       }
     };
     // RX
-    let rx_result = receiver.recv_timeout(delay);
+    let rx_result: Result<Option<Message>, _> = receiver.recv_timeout(delay);
     // OUTBOX: Remove Transaction
     let mut outbox = self.outbox.lock().unwrap();
-    outbox.deref_mut().remove(&system);
     match rx_result {
       // RX: Success
-      Ok(rx_message) => return Ok(rx_message),
+      Ok(rx_message) => Ok(rx_message),
       // RX: Failure
-      Err(_e) => return Ok(None),
+      Err(_e) => {
+        outbox.deref_mut().remove(&message_id);
+        Ok(None)
+      }
     }
   }
 
@@ -697,11 +792,11 @@ impl Client {
   /// -------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
-  /// state will automatically respond to having received a [Data Message]
-  /// based on its contents and the current [Selection State]:
+  /// state will respond to having received a [Data Message] based on its
+  /// contents and the current [Selection State]:
   /// - [NOT SELECTED] - The [Client] will respond by transmitting a
-  ///   [Reject.req] message, rejecting the [HSMS Data Procedure] and
-  ///   completing the [HSMS Reject Procedure].
+  ///   [Reject.req] message, rejecting the [Data Procedure] and
+  ///   completing the [Reject Procedure].
   /// - [SELECTED], Primary [Data Message] - The [Client] will send the
   ///   [Data Message] to the hook provided by the [Connect Procedure].
   /// - [SELECTED], Response [Data Message] - The [Client] will respond by
@@ -785,99 +880,86 @@ impl Client {
   /// 
   /// -------------------------------------------------------------------------
   /// 
-  /// The [Connection State] must be in the [CONNECTED] state and the
-  /// [Selection State] must be in the [NOT SELECTED] state to use this
+  /// The [Connection State] must be in the [CONNECTED] state to use this
   /// procedure.
   /// 
   /// The [Client] will wait to receive the [Select.rsp] for the amount
   /// of time specified by [T6] before it will consider it a communications
   /// failure and initiate the [Disconnect Procedure].
   /// 
+  /// Upon completion of the [Select Procedure], the [SELECTED] state is
+  /// entered, and the Selection Count is incremented by one.
+  /// 
   /// -------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
-  /// state will automatically respond to having received a [Select.req]
-  /// message based on its current [Selection State]:
-  /// - [NOT SELECTED] - The [Client] will respond with a [Select.rsp]
-  ///   accepting and completing the [Select Procedure].
-  /// - [SELECTED] - The [Client] will respond with a [Select.rsp] message
-  ///   rejecting the [Select Procedure].
+  /// state will respond to having received a [Select.req] message by calling
+  /// the [Select Procedure Callback].
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// Upon completion of the [Select Procedure], the [SELECTED] state
-  /// is entered.
-  /// 
-  /// [Connection State]:     primitive::ConnectionState
-  /// [CONNECTED]:            primitive::ConnectionState::Connected
-  /// [Selection State]:      SelectionState
-  /// [NOT SELECTED]:         SelectionState::NotSelected
-  /// [SELECTED]:             SelectionState::Selected
-  /// [T6]:                   ParameterSettings::t6
-  /// [Client]:               Client
-  /// [Disconnect Procedure]: Client::disconnect
-  /// [Select Procedure]:     Client::select
-  /// [Select.req]:           MessageContents::SelectRequest
-  /// [Select.rsp]:           MessageContents::SelectResponse
+  /// [Connection State]:          primitive::ConnectionState
+  /// [CONNECTED]:                 primitive::ConnectionState::Connected
+  /// [Selection State]:           SelectionState
+  /// [NOT SELECTED]:              SelectionState::NotSelected
+  /// [SELECTED]:                  SelectionState::Selected
+  /// [T6]:                        ParameterSettings::t6
+  /// [Client]:                    Client
+  /// [Disconnect Procedure]:      Client::disconnect
+  /// [Select Procedure]:          Client::select
+  /// [Select Procedure Callback]: ProcedureCallbacks::select
+  /// [Select.req]:                MessageContents::SelectRequest
+  /// [Select.rsp]:                MessageContents::SelectResponse
   pub fn select(
     self: &Arc<Self>,
     id: MessageID,
   ) -> JoinHandle<Result<(), Error>> {
     let clone: Arc<Client> = self.clone();
     thread::spawn(move || {
-      'disconnect: {
-        let _guard = clone.selection_mutex.lock();
-        match clone.selection_state.load(Relaxed) {
-          SelectionState::NotSelected => {
-            // TX: Select.req
-            match clone.transmit(
-              Message {
-                id,
-                contents: MessageContents::SelectRequest,
-              },
-              true,
-              clone.parameter_settings.t6,
-            )?{
-              // RX: Response
-              Some(rx_message) => {
-                match rx_message.contents {
-                  // RX: Select.rsp
-                  MessageContents::SelectResponse(select_status) => {
-                    // RX: Select.rsp Success
-                    if select_status == SelectStatus::Success as u8 {
-                      // TO: SELECTED
-                      clone.selection_state.store(SelectionState::Selected, Relaxed);
-                      return Ok(())
-                    }
-                    // RX: Select.rsp Failure
-                    else {
-                      return Err(Error::from(ErrorKind::PermissionDenied))
-                    }
-                  },
-                  // RX: Reject.req
-                  MessageContents::RejectRequest(_type, _reason) => return Err(Error::from(ErrorKind::PermissionDenied)),
-                  // RX: Unknown
-                  _ => return Err(Error::from(ErrorKind::InvalidData)),
-                }
-              },
-              // RX: No Response
-              None => {
-                // TO: NOT CONNECTED, NOT SELECTED
-                break 'disconnect;
-              },
+      let _guard = clone.selection_mutex.lock().unwrap();
+      // TX: Select.req
+      match clone.transmit(
+        Message {
+          id,
+          contents: MessageContents::SelectRequest,
+        },
+        true,
+        clone.parameter_settings.t6,
+      )?{
+        // RX: No Response
+        None => {
+          // DISCONNECT
+          clone.disconnect()?;
+          Err(Error::from(ErrorKind::ConnectionAborted))
+        }
+        // RX: Response
+        Some(rx_message) => {
+          match rx_message.contents {
+            // RX: Select.rsp
+            MessageContents::SelectResponse(select_status) => {
+              // RX: Select.rsp Success
+              if select_status == SelectStatus::Ok as u8 {
+                // TO: SELECTED
+                clone.selection_state.store(SelectionState::Selected, Relaxed);
+                // SELECTION COUNT + 1
+                clone.selection_count.store(clone.selection_count.load(Relaxed) + 1, Relaxed);
+                // FINISH
+                Ok(())
+              }
+              // RX: Select.rsp Failure
+              else {
+                Err(Error::from(ErrorKind::PermissionDenied))
+              }
             }
-          },
-          SelectionState::Selected => {
-            return Err(Error::from(ErrorKind::AlreadyExists))
-          },
+            // RX: Reject.req
+            MessageContents::RejectRequest(_type, _reason) => Err(Error::from(ErrorKind::PermissionDenied)),
+            // RX: Unknown
+            _ => Err(Error::from(ErrorKind::InvalidData)),
+          }
         }
       }
-      clone.disconnect()?;
-      Err(Error::from(ErrorKind::ConnectionAborted))
     })
   }
 
-  /// ### DESELECT PROCEDURE (TODO)
+  /// ### DESELECT PROCEDURE
   /// **Based on SEMI E37-1109§7.7**
   /// 
   /// Asks the [Client] to initiate the [Deselect Procedure] by transmitting a
@@ -893,36 +975,86 @@ impl Client {
   /// time specified by [T6] before it will consider it a communications
   /// failure and initiate the [Disconnect Procedure].
   /// 
+  /// Upon completion of the [Deselect Procedure], the Selection Count is
+  /// decremented. If the Selection Count becomes zero, the [NOT SELECTED]
+  /// state is entered.
+  /// 
   /// -------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
-  /// state will automatically respond to having received a [Deselect.req]
-  /// message based on its current [Selection State]:
-  /// - [NOT SELECTED] - The [Client] will respond with a [Deselect.rsp]
-  ///   rejecting the [Deselect Procedure].
-  /// - [SELECTED] - The [Client] will respond with a [Deselect.rsp] accepting
-  ///   and completing the [Deselect Procedure].
+  /// state will respond to having received a [Deselect.req] message by calling
+  /// the [Deselect Procedure Callback].
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// Upon completion of the [Deselect Procedure], the [NOT SELECTED] state is
-  /// entered.
-  /// 
-  /// [Connection State]:     primitive::ConnectionState
-  /// [CONNECTED]:            primitive::ConnectionState::Connected
-  /// [Selection State]:      SelectionState
-  /// [NOT SELECTED]:         SelectionState::NotSelected
-  /// [SELECTED]:             SelectionState::Selected
-  /// [T6]:                   ParameterSettings::t6
-  /// [Client]:               Client
-  /// [Disconnect Procedure]: Client::disconnect
-  /// [Deselect Procedure]:   Client::deselect
-  /// [Deselect.req]:         MessageContents::DeselectRequest
-  /// [Deselect.rsp]:         MessageContents::DeselectResponse
+  /// [Connection State]:            primitive::ConnectionState
+  /// [CONNECTED]:                   primitive::ConnectionState::Connected
+  /// [Client]:                      Client
+  /// [Disconnect Procedure]:        Client::disconnect
+  /// [Deselect Procedure]:          Client::deselect
+  /// [Selection State]:             SelectionState
+  /// [NOT SELECTED]:                SelectionState::NotSelected
+  /// [SELECTED]:                    SelectionState::Selected
+  /// [T6]:                          ParameterSettings::t6
+  /// [Deselect Procedure Callback]: ProcedureCallbacks::deselect
+  /// [Deselect.req]:                MessageContents::DeselectRequest
+  /// [Deselect.rsp]:                MessageContents::DeselectResponse
   pub fn deselect(
     self: &Arc<Self>,
-  ) -> Result<(), Error> {
-    todo!()
+    id: MessageID,
+  ) -> JoinHandle<Result<(), Error>> {
+    let clone: Arc<Client> = self.clone();
+    thread::spawn(move || {
+      match clone.selection_state.load(Relaxed) {
+        // NOT SELECTED
+        SelectionState::NotSelected => Err(Error::from(ErrorKind::AlreadyExists)),
+        // SELECTED
+        SelectionState::Selected => {
+          let _guard = clone.selection_mutex.lock().unwrap();
+          // TX: Deselect.req
+          match clone.transmit(
+            Message {
+              id,
+              contents: MessageContents::DeselectRequest,
+            },
+            true,
+            clone.parameter_settings.t6,
+          )?{
+            // RX: Response
+            Some(rx_message) => {
+              match rx_message.contents {
+                // RX: Deselect.rsp
+                MessageContents::DeselectResponse(deselect_status) => {
+                  // RX: Deselect.rsp Success
+                  if deselect_status == DeselectStatus::Ok as u8 {
+                    // SELECTION COUNT - 1
+                    clone.selection_count.store(clone.selection_count.load(Relaxed) - 1, Relaxed);
+                    // TO: NOT SELECTED
+                    if clone.selection_count.load(Relaxed) == 0 {
+                      clone.selection_state.store(SelectionState::NotSelected, Relaxed);
+                    }
+                    // FINISH
+                    Ok(())
+                  }
+                  // RX: Deselect.rsp Failure
+                  else {
+                    Err(Error::from(ErrorKind::PermissionDenied))
+                  }
+                },
+                // RX: Reject.req
+                MessageContents::RejectRequest(_type, _reason) => Err(Error::from(ErrorKind::PermissionDenied)),
+                // RX: Unknown
+                _ => Err(Error::from(ErrorKind::InvalidData)),
+              }
+            },
+            // RX: No Response
+            None => {
+              // DISCONNECT
+              clone.disconnect()?;
+              Err(Error::from(ErrorKind::ConnectionAborted))
+            },
+          }
+        },
+      }
+    })
   }
 
   /// ### LINKTEST PROCEDURE
@@ -944,20 +1076,18 @@ impl Client {
   /// -------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the
-  /// [CONNECTED] state will automatically respond to having received a
-  /// [Linktest.req] message:
-  /// - The [Client] will respond with a [Linktest.rsp], completing the
-  ///   [Linktest Procedure].
+  /// [CONNECTED] state will respond to having received a [Linktest.req]
+  /// message with a [Linktest.rsp], completing the [Linktest Procedure].
   /// 
   /// [Connection State]:     primitive::ConnectionState
   /// [CONNECTED]:            primitive::ConnectionState::Connected
+  /// [Client]:               Client
+  /// [Disconnect Procedure]: Client::disconnect
+  /// [Linktest Procedure]:   Client::linktest
   /// [Selection State]:      SelectionState
   /// [NOT SELECTED]:         SelectionState::NotSelected
   /// [SELECTED]:             SelectionState::Selected
   /// [T6]:                   ParameterSettings::t6
-  /// [Client]:               Client
-  /// [Disconnect Procedure]: Client::disconnect
-  /// [Linktest Procedure]:   Client::linktest
   /// [Linktest.req]:         MessageContents::LinktestRequest
   /// [Linktest.rsp]:         MessageContents::LinktestResponse
   pub fn linktest(
@@ -991,7 +1121,7 @@ impl Client {
         },
         // RX: No Response
         None => {
-          // TO: NOT CONNECTED, NOT SELECTED
+          // DISCONNECT
           clone.disconnect()?;
           Err(Error::from(ErrorKind::ConnectionAborted))
         },
@@ -1010,41 +1140,37 @@ impl Client {
   /// The [Connection State] must be in the [CONNECTED] state and the
   /// [Selection State] must be in the [SELECTED] state to use this procedure.
   /// 
+  /// Upon completion of the [Separate Procedure], the Selection Count is
+  /// decremented by one. If the Selection Count becomes zero, the
+  /// [NOT SELECTED] state is entered.
+  /// 
   /// -------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
-  /// state will automatically respond to having received a [Separate.req]
-  /// message based on its current [Selection State]:
-  /// - [NOT SELECTED] - The [Client] will not do anything.
-  /// - [SELECTED] - The [Client] will complete the [Separate Procedure].
+  /// state will respond to having received a [Separate.req] message by calling
+  /// the [Separate Procedure Callback].
   /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// Upon completion of the [Separate Procedure], the [NOT SELECTED] state is
-  /// entered.
-  /// 
-  /// [Connection State]:   primitive::ConnectionState
-  /// [CONNECTED]:          primitive::ConnectionState::Connected
-  /// [Selection State]:    SelectionState
-  /// [NOT SELECTED]:       SelectionState::NotSelected
-  /// [SELECTED]:           SelectionState::Selected
-  /// [Client]:             Client
-  /// [Separate Procedure]: Client::separate
-  /// [Separate.req]:       MessageContents::SeparateRequest
+  /// [Connection State]:            primitive::ConnectionState
+  /// [CONNECTED]:                   primitive::ConnectionState::Connected
+  /// [Selection State]:             SelectionState
+  /// [NOT SELECTED]:                SelectionState::NotSelected
+  /// [SELECTED]:                    SelectionState::Selected
+  /// [Client]:                      Client
+  /// [Separate Procedure]:          Client::separate
+  /// [Separate Procedure Callback]: ProcedureCallbacks::separate
+  /// [Separate.req]:                MessageContents::SeparateRequest
   pub fn separate(
     self: &Arc<Self>,
     id: MessageID,
   ) -> JoinHandle<Result<(), Error>> {
     let clone: Arc<Client> = self.clone();
     thread::spawn(move || {
-      let _guard = clone.selection_mutex.lock().unwrap();
       match clone.selection_state.load(Relaxed) {
-        // IS: NOT SELECTED
-        SelectionState::NotSelected => {
-          Err(Error::from(ErrorKind::PermissionDenied))
-        },
-        // IS: SELECTED
+        // NOT SELECTED: ERROR
+        SelectionState::NotSelected => Err(Error::from(ErrorKind::AlreadyExists)),
+        // SELECTED
         SelectionState::Selected => {
+          let _guard = clone.selection_mutex.lock().unwrap();
           // TX: Separate.req
           clone.transmit(
             Message {
@@ -1054,18 +1180,23 @@ impl Client {
             false,
             clone.parameter_settings.t6,
           )?;
+          // SELECTION COUNT - 1
+          clone.selection_count.store(clone.selection_count.load(Relaxed) - 1, Relaxed);
           // TO: NOT SELECTED
-          clone.selection_state.store(SelectionState::NotSelected, Relaxed);
+          if clone.selection_count.load(Relaxed) == 0 {
+            clone.selection_state.store(SelectionState::NotSelected, Relaxed);
+          }
+          // FINISH
           Ok(())
-        },
+        }
       }
     })
   }
 
-  /// ### REJECT PROCEDURE (TODO)
+  /// ### REJECT PROCEDURE
   /// **Based on SEMI E37-1109§7.10**
   /// 
-  /// Asks the [Client] to initiate the [Reject Procedure] by transmitting a
+  /// Asks the [Client] to complete the [Reject Procedure] by transmitting a
   /// [Reject.req] message.
   /// 
   /// -------------------------------------------------------------------------
@@ -1076,22 +1207,43 @@ impl Client {
   /// -------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
-  /// state will automatically respond to having received a [Reject.req]:
-  /// - Not yet implemented.
+  /// state will respond to having received a [Reject.req] by correlating the
+  /// message to a previously sent message which is awaiting a reply, aborting
+  /// a previously initiated [Data Procedure], [Select Procedure],
+  /// [Deselect Procedure], or [Linktest Procedure], and completing the
+  /// [Reject Procedure].
   /// 
-  /// [Connection State]: primitive::ConnectionState
-  /// [CONNECTED]:        primitive::ConnectionState::Connected
-  /// [Selection State]:  SelectionState
-  /// [NOT SELECTED]:     SelectionState::NotSelected
-  /// [SELECTED]:         SelectionState::Selected
-  /// [Client]:           Client
-  /// [Reject Procedure]: Client::reject
-  /// [Reject.req]:       MessageContents::RejectRequest
+  /// [Connection State]:   primitive::ConnectionState
+  /// [CONNECTED]:          primitive::ConnectionState::Connected
+  /// [Client]:             Client
+  /// [Data Procedure]:     Client::data
+  /// [Select Procedure]:   Client::select
+  /// [Deselect Procedure]: Client::deselect
+  /// [Linktest Procedure]: Client::linktest
+  /// [Reject Procedure]:   Client::reject
+  /// [Selection State]:    SelectionState
+  /// [NOT SELECTED]:       SelectionState::NotSelected
+  /// [SELECTED]:           SelectionState::Selected
+  /// [Reject.req]:         MessageContents::RejectRequest
   pub fn reject(
     self: &Arc<Self>,
-    _reason: RejectReason,
-  ) -> Result<(), Error> {
-    todo!()
+    id: MessageID,
+    ps_type: u8,
+    reason: RejectReason,
+  ) -> JoinHandle<Result<(), Error>> {
+    let clone: Arc<Client> = self.clone();
+    thread::spawn(move || {
+      // TX: Reject.req
+      clone.transmit(
+        Message {
+          id,
+          contents: MessageContents::RejectRequest(ps_type, reason as u8)
+        },
+        false,
+        clone.parameter_settings.t6,
+      )?;
+      Ok(())
+    })
   }
 }
 
@@ -1268,6 +1420,90 @@ impl Default for ParameterSettings {
       t8: Duration::from_secs(5),
     }
   }
+}
+
+/// ## PROCEDURE CALLBACKS
+/// **Based on SEMI E37-1109§7**
+/// 
+/// In the [Generic Services], the responding entity is given the option of how
+/// to respond to the [Select Procedure], [Deselect Procedure], and
+/// [Separate Procedure] without futher definition by the standard.
+/// 
+/// In order to provide a mechanism for subsidiary standards and third-party
+/// users to define this behavior, the use of callbacks is required.
+/// 
+/// [Generic Services]:   crate::generic
+/// [Select Procedure]:   Client::select
+/// [Deselect Procedure]: Client::deselect
+/// [Separate Procedure]: Client::separate
+#[derive(Clone)]
+pub struct ProcedureCallbacks {
+  /// ### SELECT PROCEDURE CALLBACK
+  /// **Based on SEMI E37-1109§7.4.2**
+  /// 
+  /// Called when a [Select.req] is received, thus making the [Client] the
+  /// responding entity in the [Select Procedure].
+  /// 
+  /// The [Session ID] of the [Select.req] and the current Selection Count are
+  /// provided as arguments, and a [Select Status] must be provided.
+  /// 
+  /// The [Client] will proceed to respond with a [Select.rsp] containing the
+  /// provided [Select Status], thus completing the [Select Procedure], and if
+  /// a [Select Status] of [COMMUNICATION ESTABLISHED] is provided, the
+  /// Selection Count will be incremented by one.
+  /// 
+  /// [Client]:                    Client
+  /// [Select Procedure]:          Client::select
+  /// [Session ID]:                MessageID::session
+  /// [Select.req]:                MessageContents::SelectRequest
+  /// [Select.rsp]:                MessageContents::SelectResponse
+  /// [Select Status]:             SelectStatus
+  /// [COMMUNICATION ESTABLISHED]: SelectStatus::Ok
+  pub select: Arc<dyn Fn(u16, u16) -> SelectStatus + Sync + Send>,
+
+  /// ### DESELECT PROCEDURE CALLBACK
+  /// **Based on SEMI E37-1109§7.7.2**
+  /// 
+  /// Called when a [Deselect.req] is received, thus making the [Client] the
+  /// responding entity in the [Deselect Procedure], and the current Selection
+  /// Count is greater than zero.
+  /// 
+  /// The [Session ID] of the [Deselect.req] and the current Selection Count
+  /// are provided as arguments, and a [Deselect Status] must be provided.
+  /// 
+  /// The [Client] will proceed to respond with a [Deselect.rsp] containing the
+  /// provided [Deselect Status], thus completing the [Deselect Procedure], and
+  /// if a [Deselect Status] of [COMMUNICATION ENDED] is provided, the
+  /// Selection Count will be decremented by one.
+  /// 
+  /// [Client]:              Client
+  /// [Deselect Procedure]:  Client::deselect
+  /// [Session ID]:          MessageID::session
+  /// [Deselect.req]:        MessageContents::DeselectRequest
+  /// [Deselect.rsp]:        MessageContents::DeselectResponse
+  /// [Deselect Status]:     DeselectStatus
+  /// [COMMUNICATION ENDED]: DeselectStatus::Ok
+  pub deselect: Arc<dyn Fn(u16, u16) -> DeselectStatus + Sync + Send>,
+
+  /// ### SEPARATE PROCEDURE CALLBACK
+  /// **Based on SEMI E37-1109§7.9**
+  /// 
+  /// Called when a [Separate.req] is received, thus making the [Client] the
+  /// responding entity in the [Separate Procedure], and the current Selection
+  /// Count is greater than zero.
+  /// 
+  /// The [Session ID] of the [Separate.req] and the current Selection Count
+  /// are provided as arguments, and a boolean value indicating whether to
+  /// decrement the Selection Count must be provided.
+  /// 
+  /// If a value of true is provided, the Selection Count will be decremented
+  /// by one.
+  /// 
+  /// [Client]:             Client
+  /// [Separate Procedure]: Client::separate
+  /// [Session ID]:         MessageID::session
+  /// [Separate.req]:       MessageContents::SeparateRequest
+  pub separate: Arc<dyn Fn(u16, u16) -> bool + Sync + Send>,
 }
 
 /// ## MESSAGE
@@ -1519,7 +1755,7 @@ impl TryFrom<primitive::Message> for Message {
 /// [Message]:      Message
 /// [Session ID]:   MessageID::session
 /// [System Bytes]: MessageID::system
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MessageID {
   /// ### SESSION ID
   /// **Based on SEMI E37-1109§8.2.6.1**
@@ -1781,10 +2017,45 @@ pub enum SessionType {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SelectStatus {
-  Success       = 0,
+  /// ### COMMUNICATION ESTABLISHED
+  /// 
+  /// Select was successfully completed.
+  Ok = 0,
+
+  /// ### COMMUNICATION ALREADY ACTIVE
+  /// 
+  /// A previous select has already established communications to the entity
+  /// being selected.
   AlreadyActive = 1,
-  NotReady      = 2,
-  Exhausted     = 3,
+
+  /// ### CONNECTION NOT READY
+  /// 
+  /// The connection is not yet ready to accept select requests.
+  NotReady = 2,
+
+  /// ### CONNECTION EXHAUSTED
+  /// 
+  /// The entity is already servicing a separate TCP/IP connection and is
+  /// unable to service more than one at a given time.
+  Exhausted = 3,
+
+  /// ### NO SUCH ENTITY (HSMS-GS)
+  /// 
+  /// The Session ID does not correspond to any Session Entity ID available at
+  /// this connection.
+  NoSuchEntity = 4,
+
+  /// ### ENTITY IN USE (HSMS-GS)
+  /// 
+  /// The Session Entity corresponding to the Session ID is not shareable by
+  /// multiple connections and is already selected by another connection.
+  EntityInUse = 5,
+
+  /// ### ENTITY SELECTED (HSMS-GS)
+  /// 
+  /// The Session Entity corresponding to the Session ID is already selected on
+  /// the current connection.
+  EntitySelected = 6,
 }
 
 /// ## DESELECT STATUS
@@ -1803,9 +2074,23 @@ pub enum SelectStatus {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DeselectStatus {
-  Success        = 0,
+  /// ### COMMUNICATION ENDED
+  /// 
+  /// The deselect completed successfully.
+  Ok = 0,
+
+  /// ### COMMUNICATION NOT ESTABLISHED
+  /// 
+  /// Communication has not been established with a prior select, or has
+  /// already been ended with a previous deselect.
   NotEstablished = 1,
-  Busy           = 2,
+
+  /// ### COMMUNICATION BUSY
+  /// 
+  /// The session is still in use by the responding entity, and so it cannot
+  /// relinquish it gracefully. If the initiator must still terminate
+  /// communications, seprate must be used.
+  Busy = 2,
 }
 
 /// ## REJECT REASON

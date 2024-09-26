@@ -60,8 +60,6 @@
 //! 
 //! ## TODO
 //! 
-//! - [Generic Services] - "Deselect Procedure"
-//! - [Generic Services] - "Reject Procedure"
 //! - [Generic Services] - "Simultaneous Select Procedure"
 //! - [Generic Services] - "Simultaneous Deselect Procedure"
 //! - Single Selected Session Services
@@ -74,6 +72,8 @@
 //! [SECS-II]:            semi_e5
 //! [Primitive Services]: primitive
 //! [Generic Services]:   generic
+
+#![feature(map_try_insert)]
 
 pub mod primitive;
 pub mod generic;
