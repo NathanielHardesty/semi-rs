@@ -1,3 +1,23 @@
+// Copyright © 2024 Nathaniel Hardesty
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the “Software”), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
 //! # PRIMITIVE SERVICES
 //! 
 //! Defines the most agnostic form in which data can be exchanged persuant to
@@ -29,36 +49,13 @@
 //! [Message Header]:       MessageHeader
 //! [Connection State]:     ConnectionState
 
-use std::{
-  io::{
-    Error,
-    ErrorKind,
-    Read,
-    Write,
-  },
-  net::{
-    Shutdown,
-    SocketAddr,
-    TcpListener,
-    TcpStream,
-    ToSocketAddrs,
-  },
-  ops::{
-    Deref,
-    DerefMut,
-  },
-  sync::{
-    Arc,
-    mpsc::{
-      channel,
-      Receiver,
-      Sender,
-    },
-    RwLock,
-  },
-  thread,
-  time::Duration,
-};
+use std::io::{Error, ErrorKind, Read, Write};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, RwLock};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread;
+use std::time::Duration;
 
 /// ## CLIENT
 /// 
@@ -80,6 +77,11 @@ use std::{
 /// [Transmit Procedure]:   Client::transmit
 /// [Connection State]:     ConnectionState
 pub struct Client {
+  /// ### CONNECTION STATE
+  /// 
+  /// The current [Connection State].
+  /// 
+  /// [Connection State]: ConnectionState
   connection_state: RwLock<ConnectionState>,
 }
 
@@ -164,15 +166,15 @@ impl Client {
           // CONNECTION MODE: PASSIVE
           ConnectionMode::Passive => {
             // Create Listener and Wait
-            let listener = TcpListener::bind(entity)?;
+            let listener: TcpListener = TcpListener::bind(entity)?;
             listener.accept()?
           },
           // CONNECTION MODE: ACTIVE
           ConnectionMode::Active => {
             // Determine Socket
-            let socket = entity.to_socket_addrs()?.next().ok_or(Error::from(ErrorKind::AddrNotAvailable))?;
+            let socket: SocketAddr = entity.to_socket_addrs()?.next().ok_or(Error::new(ErrorKind::AddrNotAvailable, "semi_e37::primitive::Client::connect"))?;
             // Connect with Timeout
-            let stream = TcpStream::connect_timeout(
+            let stream: TcpStream = TcpStream::connect_timeout(
               &socket, 
               t5,
             )?;
@@ -181,7 +183,7 @@ impl Client {
         }
       },
       // IS: CONNECTED
-      _ => return Err(Error::from(ErrorKind::AlreadyExists)),
+      _ => return Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::primitive::Client::connect")),
     };
     // Set Read and Write Timeouts to T8
     stream.set_read_timeout(Some(t8))?;
@@ -222,12 +224,12 @@ impl Client {
   ) -> Result<(), Error> {
     match self.connection_state.read().unwrap().deref() {
       // IS: NOT CONNECTED
-      ConnectionState::NotConnected => return Err(Error::from(ErrorKind::NotConnected)),
+      ConnectionState::NotConnected => return Err(Error::new(ErrorKind::NotConnected, "semi_e37::primitive::Client::disconnect")),
       // IS: CONNECTED
       ConnectionState::Connected(stream) => {
         // TCP: SHUTDOWN
-        let _ = stream.shutdown(Shutdown::Both);
-      },
+        let _result: Result<(), Error> = stream.shutdown(Shutdown::Both);
+      }
     }
     // TO: NOT CONNECTED
     *self.connection_state.write().unwrap().deref_mut() = ConnectionState::NotConnected;
@@ -269,12 +271,8 @@ impl Client {
         let length_bytes: usize = match stream.read(&mut length_buffer) {
           Ok(l) => l,
           Err(error) => match error.kind() {
-            ErrorKind::TimedOut => {
-              break 'rx Ok(None)
-            },
-            _ => {
-              break 'rx Err(error)
-            },
+            ErrorKind::TimedOut => break 'rx Ok(None),
+            _ => break 'rx Err(error),
           }
         };
         if length_bytes != 4 {
@@ -320,7 +318,6 @@ impl Client {
         Err(_error) => break,
       }
     }
-    //let _ = self.disconnect();
   }
 
   /// ### TRANSMIT PROCEDURE
@@ -341,6 +338,7 @@ impl Client {
     message: Message,
   ) -> Result<(), Error> {
     match self.connection_state.read().unwrap().deref() {
+      ConnectionState::NotConnected => return Err(Error::new(ErrorKind::NotConnected, "semi_e37::primitive::Client::transmit")),
       ConnectionState::Connected(stream_immutable) => 'disconnect: {
         let mut stream: &TcpStream = stream_immutable;
         // Header + Data [Bytes 4+]
@@ -365,11 +363,10 @@ impl Client {
         if stream.write_all(&message_buffer).is_err() {break 'disconnect};
         // Finish
         return Ok(())
-      },
-      ConnectionState::NotConnected => return Err(Error::from(ErrorKind::NotConnected)),
+      }
     };
     self.disconnect()?;
-    Err(Error::from(ErrorKind::ConnectionAborted))
+    Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::primitive::Client::transmit"))
   }
 }
 

@@ -1,3 +1,23 @@
+// Copyright © 2024 Nathaniel Hardesty
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the “Software”), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
 //! # GENERIC SERVICES
 //! 
 //! Defines the full functionality of the [HSMS] protocol without modification
@@ -61,37 +81,17 @@
 
 pub use crate::primitive::ConnectionMode;
 
-use crate::{
-  PresentationType,
-  primitive,
-};
-use std::{
-  collections::HashMap,
-  io::{
-    Error,
-    ErrorKind,
-  },
-  net::SocketAddr,
-  ops::{
-    Deref,
-    DerefMut,
-  },
-  sync::{
-    atomic::Ordering::Relaxed,
-    Arc,
-    Mutex,
-    mpsc::{
-      channel,
-      Receiver,
-      Sender,
-    },
-  },
-  thread::{
-    self,
-    JoinHandle,
-  },
-  time::Duration,
-};
+use crate::{PresentationType, primitive};
+use std::collections::HashMap;
+use std::io::{Error, ErrorKind};
+use std::net::SocketAddr;
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread;
+use std::thread::JoinHandle;
+use std::time::Duration;
 use atomic::Atomic;
 use bytemuck::NoUninit;
 use oneshot::Sender as SendOnce;
@@ -290,7 +290,7 @@ impl Client {
     // TO: NOT CONNECTED
     let result: Result<(), Error> = self.primitive_client.disconnect();
     // TO: NOT SELECTED
-    let _guard = self.selection_mutex.lock().unwrap();
+    let _guard: std::sync::MutexGuard<'_, ()> = self.selection_mutex.lock().unwrap();
     self.selection_state.store(SelectionState::NotSelected, Relaxed);
     self.selection_count.store(0, Relaxed);
     // Finish
@@ -463,7 +463,7 @@ impl Client {
           // RX: Data Message
           MessageContents::DataMessage(data) => {
             match self.selection_state.load(Relaxed) {
-              // IS: SELECTED
+              // SELECTED
               SelectionState::Selected => {
                 // RX: Primary Data Message
                 if data.function % 2 == 1 {
@@ -493,7 +493,7 @@ impl Client {
                   }
                 }
               },
-              // IS: NOT SELECTED
+              // NOT SELECTED
               _ => {
                 // TX: Reject.req
                 if self.primitive_client.transmit(Message {
@@ -523,7 +523,7 @@ impl Client {
                   contents: MessageContents::SelectResponse(select_status as u8),
                 }.into()).is_err() {break};
               },
-              Err(_) => {
+              Err(_error) => {
                 // TODO: probably appropriate to put something here, maybe to do with the simulatenous select procedure?
               },
             }
@@ -580,7 +580,7 @@ impl Client {
                   }.into()).is_err() {break};
                 }
               },
-              Err(_) => {
+              Err(_error) => {
                 // TODO: probably appropriate to put something here, maybe to do with the simulatenous deselect procedure?
               },
             }
@@ -730,7 +730,7 @@ impl Client {
     let message_id: MessageID = message.id;
     let receiver: oneshot::Receiver<Option<Message>> = {
       // OUTBOX: LOCK
-      let outbox_lock = if reply_expected {Some(self.deref().outbox.lock().unwrap())} else {None};
+      let outbox_lock: Option<MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>>> = if reply_expected {Some(self.deref().outbox.lock().unwrap())} else {None};
       // TX
       match self.primitive_client.transmit(message.into()) {
         // TX: Success
@@ -743,7 +743,7 @@ impl Client {
               // OUTBOX: Create Transaction
               let (sender, receiver) = oneshot::channel::<Option<Message>>();
               match outbox.deref_mut().try_insert(message_id, sender) {
-                Err(_error) => return Err(Error::from(ErrorKind::AlreadyExists)),
+                Err(_error) => return Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::transmit")),
                 Ok(_sender) => receiver,
               }
             }
@@ -760,7 +760,7 @@ impl Client {
     // RX
     let rx_result: Result<Option<Message>, _> = receiver.recv_timeout(delay);
     // OUTBOX: Remove Transaction
-    let mut outbox = self.outbox.lock().unwrap();
+    let mut outbox: MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>> = self.outbox.lock().unwrap();
     match rx_result {
       // RX: Success
       Ok(rx_message) => Ok(rx_message),
@@ -827,9 +827,9 @@ impl Client {
     let reply_expected: bool = message.function % 2 == 1 && message.w;
     thread::spawn(move || {
       match clone.selection_state.load(Relaxed) {
-        // IS: NOT SELECTED
-        SelectionState::NotSelected => return Err(Error::from(ErrorKind::AlreadyExists)),
-        // IS: SELECTED
+        // NOT SELECTED
+        SelectionState::NotSelected => Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::data")),
+        // SELECTED
         SelectionState::Selected => {
           // TX: Data Message
           match clone.transmit(
@@ -844,11 +844,11 @@ impl Client {
             Some(rx_message) => {
               match rx_message.contents {
                 // RX: Data
-                MessageContents::DataMessage(data_message) => return Ok(Some(data_message)),
+                MessageContents::DataMessage(data_message) => Ok(Some(data_message)),
                 // RX: Reject.req
-                MessageContents::RejectRequest(_type, _reason) => return Err(Error::from(ErrorKind::PermissionDenied)),
+                MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::data")),
                 // RX: Unknown
-                _ => return Err(Error::from(ErrorKind::InvalidData)),
+                _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::data")),
               }
             },
             // RX: No Response
@@ -857,16 +857,16 @@ impl Client {
               if reply_expected {
                 // TO: NOT CONNECTED
                 clone.disconnect()?;
-                Err(Error::from(ErrorKind::ConnectionAborted))
+                Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::generic::Client::data"))
                 // TODO: HSMS-SS does NOT disconnect when the Data Procedure fails, may require this behavior to be optional.
               }
               // REPLY NOT EXPECTED
               else {
-                return Ok(None);
+                Ok(None)
               }
-            },
+            }
           }
-        },
+        }
       }
     })
   }
@@ -914,7 +914,7 @@ impl Client {
   ) -> JoinHandle<Result<(), Error>> {
     let clone: Arc<Client> = self.clone();
     thread::spawn(move || {
-      let _guard = clone.selection_mutex.lock().unwrap();
+      let _guard: MutexGuard<'_, ()> = clone.selection_mutex.lock().unwrap();
       // TX: Select.req
       match clone.transmit(
         Message {
@@ -928,7 +928,7 @@ impl Client {
         None => {
           // DISCONNECT
           clone.disconnect()?;
-          Err(Error::from(ErrorKind::ConnectionAborted))
+          Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::generic::Client::select"))
         }
         // RX: Response
         Some(rx_message) => {
@@ -946,13 +946,13 @@ impl Client {
               }
               // RX: Select.rsp Failure
               else {
-                Err(Error::from(ErrorKind::PermissionDenied))
+                Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::select"))
               }
             }
             // RX: Reject.req
-            MessageContents::RejectRequest(_type, _reason) => Err(Error::from(ErrorKind::PermissionDenied)),
+            MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::select")),
             // RX: Unknown
-            _ => Err(Error::from(ErrorKind::InvalidData)),
+            _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::select")),
           }
         }
       }
@@ -1005,10 +1005,10 @@ impl Client {
     thread::spawn(move || {
       match clone.selection_state.load(Relaxed) {
         // NOT SELECTED
-        SelectionState::NotSelected => Err(Error::from(ErrorKind::AlreadyExists)),
+        SelectionState::NotSelected => Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::deselect")),
         // SELECTED
         SelectionState::Selected => {
-          let _guard = clone.selection_mutex.lock().unwrap();
+          let _guard: MutexGuard<'_, ()> = clone.selection_mutex.lock().unwrap();
           // TX: Deselect.req
           match clone.transmit(
             Message {
@@ -1036,20 +1036,20 @@ impl Client {
                   }
                   // RX: Deselect.rsp Failure
                   else {
-                    Err(Error::from(ErrorKind::PermissionDenied))
+                    Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::deselect"))
                   }
                 },
                 // RX: Reject.req
-                MessageContents::RejectRequest(_type, _reason) => Err(Error::from(ErrorKind::PermissionDenied)),
+                MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::deselect")),
                 // RX: Unknown
-                _ => Err(Error::from(ErrorKind::InvalidData)),
+                _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::deselect")),
               }
             },
             // RX: No Response
             None => {
               // DISCONNECT
               clone.disconnect()?;
-              Err(Error::from(ErrorKind::ConnectionAborted))
+              Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::generic::Client::deselect"))
             },
           }
         },
@@ -1114,16 +1114,16 @@ impl Client {
             // RX: Linktest.rsp
             MessageContents::LinktestResponse => Ok(()),
             // RX: Reject.req
-            MessageContents::RejectRequest(_type, _reason) => Err(Error::from(ErrorKind::PermissionDenied)),
+            MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::linktest")),
             // RX: Unknown
-            _ => Err(Error::from(ErrorKind::InvalidData)),
+            _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::linktest")),
           }
         },
         // RX: No Response
         None => {
           // DISCONNECT
           clone.disconnect()?;
-          Err(Error::from(ErrorKind::ConnectionAborted))
+          Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::generic::Client::linktest"))
         },
       }
     })
@@ -1167,10 +1167,10 @@ impl Client {
     thread::spawn(move || {
       match clone.selection_state.load(Relaxed) {
         // NOT SELECTED: ERROR
-        SelectionState::NotSelected => Err(Error::from(ErrorKind::AlreadyExists)),
+        SelectionState::NotSelected => Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::separate")),
         // SELECTED
         SelectionState::Selected => {
-          let _guard = clone.selection_mutex.lock().unwrap();
+          let _guard: MutexGuard<'_, ()> = clone.selection_mutex.lock().unwrap();
           // TX: Separate.req
           clone.transmit(
             Message {
@@ -1519,7 +1519,24 @@ pub struct ProcedureCallbacks {
 /// [Message Contents]:  MessageContents
 #[derive(Clone, Debug)]
 pub struct Message {
+  /// ### MESSAGE ID
+  /// 
+  /// The [Message ID], which identifies a [Message]'s destination, and
+  /// correlates it to other [Message]s in order to identify a transaction
+  /// uniquely among the set of open transactions.
+  /// 
+  /// [Message]:    Message
+  /// [Message ID]: MessageID
   pub id: MessageID,
+
+  /// ### MESSAGE CONTENTS
+  /// 
+  /// The [Message Contents], which contain the specific information allowed to
+  /// be conveyed by a particular [Message], broken down by its [Session Type].
+  /// 
+  /// [Message]:          Message
+  /// [Message Contents]: MessageContents
+  /// [Session Type]:     SessionType
   pub contents: MessageContents,
 }
 impl From<Message> for primitive::Message {
