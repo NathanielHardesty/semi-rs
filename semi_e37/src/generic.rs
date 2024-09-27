@@ -748,13 +748,13 @@ impl Client {
               }
             }
           }
-        },
+        }
         // TX: Failure
         Err(error) => {
           // DISCONNECT
           let _ = self.disconnect();
           return Err(error)
-        },
+        }
       }
     };
     // RX

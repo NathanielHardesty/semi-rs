@@ -158,44 +158,99 @@ impl Client {
     t5: Duration,
     t8: Duration,
   ) -> Result<(SocketAddr, Receiver<Message>), Error> {
-    // TCP: CONNECT
+    // CONNECT
+    //
+    // We attempt here to derive a TCP connection, first by inspecting the
+    // current connection state.
     let (stream, socket) = match self.connection_state.read().unwrap().deref() {
-      // IS: NOT CONNECTED
+      // CONNECTED
+      //
+      // Two connections cannot be managed by the same client, so the function
+      // exits early by returning an error.
+      ConnectionState::Connected(_) => return Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::primitive::Client::connect")),
+
+      // NOT CONNECTED
+      //
+      // Because the client is not currently managing another connection, the
+      // connect procedure may continue.
       ConnectionState::NotConnected => {
+        // CONNECT
+        //
+        // Here we attempt to derive a TCP connection, and branch based on the
+        // specified connection mode.
         match connection_mode {
-          // CONNECTION MODE: PASSIVE
+          // PASSIVE CONNECTION MODE
+          //
+          // The passive connection mode requires the client to:
+          // - Obtain a connection endpoint.
+          // - Listen for an incoming connect request to the published port.
+          // - Upon recept of a connect request, acknowledge and accept it.
           ConnectionMode::Passive => {
-            // Create Listener and Wait
+            // Obtain a connection endpoint.
             let listener: TcpListener = TcpListener::bind(entity)?;
+            // Listen for an incoming connect request, and proceed to accept
+            // and acknowledge it automatically.
             listener.accept()?
-          },
-          // CONNECTION MODE: ACTIVE
+          }
+
+          // ACTIVE CONNECTION MODE
+          //
+          // The active connection mode requires the client to:
+          // - Obtain a connection endpoint.
+          // - Initiate a connection to a published port.
+          // - Wait for the other side to acknowledge and accept the connect.
           ConnectionMode::Active => {
-            // Determine Socket
+            // Because the function intakes a string for the address to connect
+            // to, the string must be converted into a socket address; this
+            // operation is fallable.
             let socket: SocketAddr = entity.to_socket_addrs()?.next().ok_or(Error::new(ErrorKind::AddrNotAvailable, "semi_e37::primitive::Client::connect"))?;
-            // Connect with Timeout
+            // Obtain and initiate a connection, with possible timeout.
             let stream: TcpStream = TcpStream::connect_timeout(
               &socket, 
               t5,
             )?;
             (stream, socket)
-          },
+          }
         }
-      },
-      // IS: CONNECTED
-      _ => return Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::primitive::Client::connect")),
+      }
     };
-    // Set Read and Write Timeouts to T8
+
+    // CONNECT SUCCESSFUL
+    //
+    // Now that a TCP stream has been connected, it is properly initiated with
+    // respect to the protocol by setting the read and write timeouts to the
+    // provided T8 value.
     stream.set_read_timeout(Some(t8))?;
     stream.set_write_timeout(Some(t8))?;
-    // TO: CONNECTED
+
+    // MOVE TO CONNECTED STATE
+    //
+    // Now that a TCP stream has been connected and initiated, it is safe to
+    // declare that the connection is live and may be used by the receive and
+    // transmit protocols.
+    //
+    // TODO: This particular usage of guards may cause issues if this function
+    //       is called twice in rapid succession, a solution like that for the
+    //       selection state in the generic client may be required?
     *self.connection_state.write().unwrap().deref_mut() = ConnectionState::Connected(stream);
-    // Create Channels
+
+    // CREATE MESSAGE CHANNEL
+    //
+    // A new channel is created for received messages to be provided through.
     let (rx_sender, rx_receiver) = channel::<Message>();
-    // Start RX Thread
+
+    // START RECEIVE PROCEDURE
+    //
+    // The receive procedure is not called externally, instead upon connection
+    // a new thread which runs automatically is started. It is provided with
+    // the sending end of the message channel.
     let rx_clone: Arc<Client> = self.clone();
     thread::spawn(move || {rx_clone.receive(rx_sender.clone())});
-    // Finish
+
+    // FINISH
+    //
+    // The caller is now provided with the socket address and receiving end of
+    // the message channel.
     Ok((socket, rx_receiver))
   }
 
@@ -222,17 +277,48 @@ impl Client {
   pub fn disconnect(
     self: &Arc<Self>
   ) -> Result<(), Error> {
+    // DISCONNECT
+    //
+    // We seek to close an exiting TCP connection, first by inspecting the
+    // current connection state.
     match self.connection_state.read().unwrap().deref() {
-      // IS: NOT CONNECTED
+      // NOT CONNECTED
+      //
+      // If no connection is established, there is nothing to do, so the
+      // function exits early by returning an error.
       ConnectionState::NotConnected => return Err(Error::new(ErrorKind::NotConnected, "semi_e37::primitive::Client::disconnect")),
-      // IS: CONNECTED
+
+      // CONNECTED
+      //
+      // Because the client is currently managing a connection, the function
+      // may proceed normally.
+      //
+      // TODO: Perhaps a JoinHandle for the receive thread should be stored,
+      //       and have join called on it here?
       ConnectionState::Connected(stream) => {
-        // TCP: SHUTDOWN
+        // SHUTDOWN TCP
+        //
+        // The TCP connection is shut down in order to inform the other end
+        // that communications are no longer occuring. This should also cause
+        // the receive thread to error out and quit execution if it has not
+        // already done so.
         let _result: Result<(), Error> = stream.shutdown(Shutdown::Both);
       }
     }
-    // TO: NOT CONNECTED
+
+    // MOVE TO NOT CONNECTED
+    //
+    // Now that the TCP connection has been shut down, it is safe to declare
+    // that the connection is no longer live.
+    //
+    // TODO: This particular usage of guards may cause issues if this function
+    //       is called twice in rapid succession, a solution like that for the
+    //       selection state in the generic client may be required?
     *self.connection_state.write().unwrap().deref_mut() = ConnectionState::NotConnected;
+
+    // FINISH
+    //
+    // At this point, we are assured that no errors have occurred.
     Ok(())
   }
 }
@@ -263,35 +349,82 @@ impl Client {
     self: Arc<Self>,
     rx_sender: Sender<Message>,
   ) {
+    // VERIFY CONNECTION
+    //
+    // Because receptions may time out periodically during lulls in
+    // communication activity, the connection is verified to still exist each
+    // time this occurs. If the connection no longer exists, the thread closes
+    // and no further action is taken.
     while let ConnectionState::Connected(stream_immutable) = self.connection_state.read().unwrap().deref() {
+      // ATTEMPT RECEPTION
+      //
+      // Because receptions may time out periodically during lulls in
+      // communication activity, but other errors which require disconnection
+      // or halting of this thread may occur, these two scenarios are
+      // represented separately. An Err means that the thread must close, an
+      // Ok(None) means that the timeout occurred at an allowable time, and
+      // an Ok(Some) means that a message has been received successfully.
       let res: Result<Option<Message>, Error> = 'rx: {
+        // Due to some kind of odd behavior expected by the read and write
+        // functions, a mut& TcpStream is allowed to be used for achieving
+        // the required mutability, rather than a &mut TcpStream. The latter
+        // is more difficult to attain, though I do not remember why that was
+        // the case.
         let mut stream: &TcpStream = stream_immutable;
-        // Length [Bytes 0-3]
+        // RECEIVE LENGTH BYTES
+        //
+        // Since the length bytes are the first part of a message, and are
+        // deterministically 4 bytes long according to the protocol, this is
+        // where the distinction between allowable and disallowed timeouts is
+        // made.
         let mut length_buffer: [u8;4] = [0;4];
         let length_bytes: usize = match stream.read(&mut length_buffer) {
+          // A reception was made, but possibly not one which was 4 bytes long.
           Ok(l) => l,
+          // No reception was made.
           Err(error) => match error.kind() {
+            // No reception was made, due to a timeout error, which is allowed
+            // here, so an Ok(None) is returned.
             ErrorKind::TimedOut => break 'rx Ok(None),
+            // No reception was made, due to an error which is not acceptable,
+            // so an Err is returned.
             _ => break 'rx Err(error),
           }
         };
-        if length_bytes != 4 {
-          break 'rx Err(Error::from(ErrorKind::TimedOut))
-        }
+        // If 4 bytes for the message length were not properly received, then
+        // a timeout has occured at an unacceptable time, so an Err is
+        // returned.
+        if length_bytes != 4 {break 'rx Err(Error::from(ErrorKind::TimedOut))}
+        // Now that we are assured that we have received the length bytes, we
+        // we can turn them into an actual value.
         let length: u32 = u32::from_be_bytes(length_buffer);
-        if length < 10 {
-          break 'rx Err(Error::from(ErrorKind::InvalidData))
-        }
-        // Header + Data [Bytes 4+]
+        // According to the protocol, it is unacceptable for the length bytes
+        // to have a value less than 10, as that is required in order to parse
+        // the message header. If that is the case, then an Err is returned.
+        if length < 10 {break 'rx Err(Error::from(ErrorKind::InvalidData))}
+
+        // RECEIVE MESSAGE DATA
+        //
+        // Now that we are assured that the length field is valid, we proceed
+        // to receive the actual message header, and any further data.
         let mut message_buffer: Vec<u8> = vec![0; length as usize];
         let message_bytes: usize = match stream.read(&mut message_buffer) {
+          // A reception was made, but possibly not all of the bytes needed to
+          // comply with the length bytes.
           Ok(message_bytes) => message_bytes,
+          // No reception was made, due to an error which is not acceptable,
+          // so an Err is returned.
           Err(error) => break 'rx Err(error),
         };
-        if message_bytes != length as usize {
-          break 'rx Err(Error::from(ErrorKind::TimedOut))
-        }
-        // Diagnostic
+        // It is unacceptable to have at this point not received all of the
+        // requisite data, so an Err is returned.
+        if message_bytes != length as usize {break 'rx Err(Error::from(ErrorKind::TimedOut))}
+
+        // PRINT DIAGNOSTIC
+        //
+        // This vestigial diagnostic remains useful for debugging purposes, as
+        // it prints all messages received. It will be commented out in all
+        // published versions.
         /*println!(
           "rx {: >4X} {: >3}{} {: >3} {: >2X} {: >2X} {: >8X} {:?}",
           u16::from_be_bytes(message_buffer[0..2].try_into().unwrap()),
@@ -303,19 +436,51 @@ impl Client {
           u32::from_be_bytes(message_buffer[6..10].try_into().unwrap()),
           &message_buffer[10..],
         );// */
-        // Finish
+
+        // FINISH RECEPTION
+        //
+        // Because deserializing a message is a fallable operation, we now
+        // attempt it here after being assured of having received all the
+        // requisite data to possibly compose a correct message.
         match Message::try_from(message_buffer) {
           Ok(message) => Ok(Some(message)),
           Err(_) => break 'rx Err(Error::from(ErrorKind::InvalidData)),
         }
       };
       match res {
-        // RX: SUCCESS
+        // RECEPTION SUCCESS
+        //
+        // When this branch is reached, it means that a message was received,
+        // or that a timeout occured at an acceptable time. If a timeout
+        // has occurred, no action is taken.
         Ok(optional_rx_message) => if let Some(rx_message) = optional_rx_message {
-          if rx_sender.send(rx_message).is_err() {break}
-        },
-        // RX: FAILURE
-        Err(_error) => break,
+          // SEND MESSAGE
+          //
+          // The message is now provided to the other end of the message
+          // channel.
+          if rx_sender.send(rx_message).is_err() {
+            // If the other end of the message channel has hung up, there is no
+            // point in continuing to receive messages, so the thread stops
+            // here.
+            break
+          }
+        }
+
+        // RECEPTION FAILURE
+        //
+        // When this branch is reached, it means that the other end of the TCP
+        // connection has closed the connection, or some other TCP error
+        // preventing further communication has occurred.
+        Err(_error) => {
+          // TCP SHUTDOWN
+          //
+          // Only the read side of a TCP connection is guaranteed to be
+          // informed of dropped communications, so shutdown is called in order
+          // for the transmit function to throw an error the next time it
+          // transmits, without having to reach a timeout.
+          let _result: Result<(), Error> = stream_immutable.shutdown(Shutdown::Both);
+          break
+        }
       }
     }
   }
@@ -337,16 +502,50 @@ impl Client {
     self: &Arc<Self>,
     message: Message,
   ) -> Result<(), Error> {
+    // VERIFY CONNECTION
+    //
+    // First, it is checked whether or not a connection has been established.
     match self.connection_state.read().unwrap().deref() {
+      // NOT CONNECTED
+      //
+      // If a valid connection has not been established, it is impossible to
+      // transmit the message, so the function exits early by returning an
+      // error.
       ConnectionState::NotConnected => return Err(Error::new(ErrorKind::NotConnected, "semi_e37::primitive::Client::transmit")),
+
+      // CONNECTED
+      //
+      // If a valid connection has been established, the function may proceed.
       ConnectionState::Connected(stream_immutable) => 'disconnect: {
+        // Due to some kind of odd behavior expected by the read and write
+        // functions, a mut& TcpStream is allowed to be used for achieving
+        // the required mutability, rather than a &mut TcpStream. The latter
+        // is more difficult to attain, though I do not remember why that was
+        // the case.
         let mut stream: &TcpStream = stream_immutable;
-        // Header + Data [Bytes 4+]
+
+        // SERALIZE MESSAGE
+        //
+        // The serialization of a message is an infallable operation, so is
+        // handled here rather simply.
         let message_buffer: Vec<u8> = (&message).into();
-        // Length [Bytes 0-3]
+
+        // SERALIZE MESSAGE LENGTY BYTES
+        //
+        // All messages must begin with a 4 byte field declaring the length of
+        // the following data, so that is encoded here.
+        //
+        // TODO: It is possible (though unlikely) that a message longer than it
+        //       is possible to represent with a u32 could be transmitted.
+        //       Perhaps this edge case should be handled here?
         let length: u32 = message_buffer.len() as u32;
         let length_buffer: [u8; 4] = length.to_be_bytes();
-        // Diagnostic
+
+        // PRINT DIAGNOSTIC
+        //
+        // This vestigial diagnostic remains useful for debugging purposes, as
+        // it prints all messages transmitted. It will be commented out in all
+        // published versions.
         /*println!(
           "tx {: >4X} {: >3}{} {: >3} {: >2X} {: >2X} {: >8X} {:?}",
           u16::from_be_bytes(message_buffer[0..2].try_into().unwrap()),
@@ -358,13 +557,28 @@ impl Client {
           u32::from_be_bytes(message_buffer[6..10].try_into().unwrap()),
           &message_buffer[10..],
         );// */
-        // Write
+
+        // TRANSMIT MESSAGE
+        //
+        // The length bytes, followed by the message data, are now transmitted.
+        // This operation is fallable, and failing to transmit due to a timeout
+        // or other reason requires the client to disconnect.
         if stream.write_all(&length_buffer).is_err() {break 'disconnect};
         if stream.write_all(&message_buffer).is_err() {break 'disconnect};
-        // Finish
+
+        // FINISH
+        //
+        // At this point, we are assured that no errors have occurred.
         return Ok(())
       }
     };
+
+    // DISCONNECT
+    //
+    // If a transmission error occurs, the client must now disconnect. If the
+    // disconnect succeeds, it means that this is the first transmission to
+    // fail after a connection has been established, so an error is returned
+    // indicating that.
     self.disconnect()?;
     Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::primitive::Client::transmit"))
   }
@@ -503,15 +717,25 @@ impl From<&Message> for Vec<u8> {
   /// 
   /// [Message]: Message
   fn from(val: &Message) -> Self {
+    // SERALIZE
+    //
+    // A vector is created to contain both the header and the data.
     let mut vec: Vec<u8> = vec![];
+    // The header is converted into a byte array and added to the vector.
     let header_bytes: [u8;10] = val.header.into();
     vec.extend(header_bytes.iter());
+    // The message data is added to the vector.
     vec.extend(&val.text);
+
+    // FINISH
+    //
+    // Because this operation is infallable, the serialized version of the
+    // message is now provided.
     vec
   }
 }
 impl TryFrom<Vec<u8>> for Message {
-  type Error = ();
+  type Error = Error;
 
   /// ### DESERIALIZE MESSAGE
   /// 
@@ -519,9 +743,26 @@ impl TryFrom<Vec<u8>> for Message {
   /// 
   /// [Message]: Message
   fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-    if bytes.len() < 10 {return Err(())}
+    // VERIFY LENGTH
+    //
+    // If the length of the provided bytes is less than is required in order
+    // to deserialize the message header, the function exits early by providing
+    // an error.
+    if bytes.len() < 10 {return Err(Error::new(ErrorKind::InvalidData, "semi_e37::primitive::Message::try_from<Vec<u8>>"))}
+
+    // DESERIALIZE
+    //
+    // The message is now deseralized.
+    //
+    // TODO: It is possible we may want to accept &[u8] into this function
+    //       instead of Vec<u8>. Performance or flexibility has not yet been
+    //       considered.
     Ok(Self {
-      header: MessageHeader::from(<[u8;10]>::try_from(&bytes[0..10]).map_err(|_| ())?),
+      // The header is now deserialized from the first 10 bytes of the provided
+      // bytes. This is an infallable operation due to our previous check.
+      header: MessageHeader::from(<[u8;10]>::try_from(&bytes[0..10]).unwrap()),
+
+      // Any remaining bytes are now considered to be the message text.
       text: bytes[10..].to_vec(),
     })
   }
@@ -598,9 +839,15 @@ impl From<MessageHeader> for [u8;10] {
   /// 
   /// [Message Header]: MessageHeader
   fn from(val: MessageHeader) -> Self {
+    // SERALIZE
+    //
+    // A new array to be returned is now created.
     let mut bytes: [u8;10] = [0;10];
+    // The fields which must be broken down into multiple bytes in network
+    // order are now seralized.
     let session_id_bytes: [u8;2] = val.session_id.to_be_bytes();
     let system_bytes: [u8;4] = val.system.to_be_bytes();
+    // All bytes of all fields are now placed into the array.
     bytes[0] = session_id_bytes[0];
     bytes[1] = session_id_bytes[1];
     bytes[2] = val.byte_2;
@@ -611,6 +858,11 @@ impl From<MessageHeader> for [u8;10] {
     bytes[7] = system_bytes[1];
     bytes[8] = system_bytes[2];
     bytes[9] = system_bytes[3];
+
+    // FINISH
+    //
+    // Because this operation is infallable, the serialized version of the
+    // header is now provided.
     bytes
   }
 }
@@ -621,13 +873,17 @@ impl From<[u8;10]> for MessageHeader {
   /// 
   /// [Message Header]: MessageHeader
   fn from(bytes: [u8;10]) -> Self {
+    // DESERALIZE
+    //
+    // The deserialization of a message header from an array of the correct
+    // length is an infallable operation.
     Self {
-      session_id        : u16::from_be_bytes(bytes[0..2].try_into().unwrap()),
-      byte_2            : bytes[2],
-      byte_3            : bytes[3],
-      presentation_type : bytes[4],
-      session_type      : bytes[5],
-      system            : u32::from_be_bytes(bytes[6..10].try_into().unwrap()),
+      session_id: u16::from_be_bytes(bytes[0..2].try_into().unwrap()),
+      byte_2: bytes[2],
+      byte_3: bytes[3],
+      presentation_type: bytes[4],
+      session_type: bytes[5],
+      system: u32::from_be_bytes(bytes[6..10].try_into().unwrap()),
     }
   }
 }
