@@ -371,6 +371,7 @@ impl Client {
         // is more difficult to attain, though I do not remember why that was
         // the case.
         let mut stream: &TcpStream = stream_immutable;
+
         // RECEIVE LENGTH BYTES
         //
         // Since the length bytes are the first part of a message, and are
@@ -380,7 +381,7 @@ impl Client {
         let mut length_buffer: [u8;4] = [0;4];
         let length_bytes: usize = match stream.read(&mut length_buffer) {
           // A reception was made, but possibly not one which was 4 bytes long.
-          Ok(l) => l,
+          Ok(length_received) => length_received,
           // No reception was made.
           Err(error) => match error.kind() {
             // No reception was made, due to a timeout error, which is allowed
@@ -403,22 +404,38 @@ impl Client {
         // the message header. If that is the case, then an Err is returned.
         if length < 10 {break 'rx Err(Error::from(ErrorKind::InvalidData))}
 
-        // RECEIVE MESSAGE DATA
+        // RECEIVE MESSAGE HEADER
         //
         // Now that we are assured that the length field is valid, we proceed
-        // to receive the actual message header, and any further data.
-        let mut message_buffer: Vec<u8> = vec![0; length as usize];
-        let message_bytes: usize = match stream.read(&mut message_buffer) {
+        // to receive the actual message header.
+        let mut header_buffer: [u8; 10] = [0; 10];
+        let header_bytes: usize = match stream.read(&mut header_buffer[0..]) {
           // A reception was made, but possibly not all of the bytes needed to
-          // comply with the length bytes.
-          Ok(message_bytes) => message_bytes,
+          // for the header.
+          Ok(header_received) => header_received,
           // No reception was made, due to an error which is not acceptable,
           // so an Err is returned.
           Err(error) => break 'rx Err(error),
         };
-        // It is unacceptable to have at this point not received all of the
-        // requisite data, so an Err is returned.
-        if message_bytes != length as usize {break 'rx Err(Error::from(ErrorKind::TimedOut))}
+        if header_bytes != 10 {break 'rx Err(Error::from(ErrorKind::TimedOut))}
+
+        // RECEIVE MESSAGE DATA
+        //, and any further data.
+        let data_length: u32 = length - 10;
+        let mut data_buffer: Vec<u8> = vec![0; data_length as usize];
+        if data_length > 0 {
+          let data_bytes: usize = match stream.read(&mut data_buffer) {
+            // A reception was made, but possibly not all of the bytes needed
+            // to comply with the length bytes.
+            Ok(data_received) => data_received,
+            // No reception was made, due to an error which is not acceptable,
+            // so an Err is returned.
+            Err(error) => break 'rx Err(error),
+          };
+          // It is unacceptable to have at this point not received all of the
+          // requisite data, so an Err is returned.
+          if data_bytes != data_length as usize {break 'rx Err(Error::from(ErrorKind::TimedOut))}
+        }
 
         // PRINT DIAGNOSTIC
         //
@@ -427,25 +444,24 @@ impl Client {
         // published versions.
         /*println!(
           "rx {: >4X} {: >3}{} {: >3} {: >2X} {: >2X} {: >8X} {:?}",
-          u16::from_be_bytes(message_buffer[0..2].try_into().unwrap()),
-          &message_buffer[2] & 0b0111_1111,
-          if (&message_buffer[2] & 0b1000_0000) > 0 {'W'} else {' '},
-          &message_buffer[3],
-          &message_buffer[4],
-          &message_buffer[5],
-          u32::from_be_bytes(message_buffer[6..10].try_into().unwrap()),
-          &message_buffer[10..],
+          u16::from_be_bytes(header_buffer[0..2].try_into().unwrap()),
+          &header_buffer[2] & 0b0111_1111,
+          if (&header_buffer[2] & 0b1000_0000) > 0 {'W'} else {' '},
+          &header_buffer[3],
+          &header_buffer[4],
+          &header_buffer[5],
+          u32::from_be_bytes(header_buffer[6..10].try_into().unwrap()),
+          &data_buffer[0..],
         );// */
 
         // FINISH RECEPTION
         //
-        // Because deserializing a message is a fallable operation, we now
-        // attempt it here after being assured of having received all the
-        // requisite data to possibly compose a correct message.
-        match Message::try_from(message_buffer) {
-          Ok(message) => Ok(Some(message)),
-          Err(_) => break 'rx Err(Error::from(ErrorKind::InvalidData)),
-        }
+        // At this point the derivation of a message is infallable and it can
+        // be returned.
+        Ok(Some(Message {
+          header: MessageHeader::from(header_buffer),
+          text: data_buffer,
+        }))
       };
       match res {
         // RECEPTION SUCCESS
@@ -524,13 +540,7 @@ impl Client {
         // the case.
         let mut stream: &TcpStream = stream_immutable;
 
-        // SERALIZE MESSAGE
-        //
-        // The serialization of a message is an infallable operation, so is
-        // handled here rather simply.
-        let message_buffer: Vec<u8> = (&message).into();
-
-        // SERALIZE MESSAGE LENGTY BYTES
+        // SERALIZE MESSAGE LENGTH BYTES
         //
         // All messages must begin with a 4 byte field declaring the length of
         // the following data, so that is encoded here.
@@ -538,8 +548,14 @@ impl Client {
         // TODO: It is possible (though unlikely) that a message longer than it
         //       is possible to represent with a u32 could be transmitted.
         //       Perhaps this edge case should be handled here?
-        let length: u32 = message_buffer.len() as u32;
+        let length: u32 = (message.text.len() + 10) as u32;
         let length_buffer: [u8; 4] = length.to_be_bytes();
+
+        // SERALIZE MESSAGE HEADER
+        //
+        // All messages contain at least 10 bytes sent, the header, so that is
+        // encoded here.
+        let header_buffer: [u8; 10] = message.header.into();
 
         // PRINT DIAGNOSTIC
         //
@@ -548,14 +564,14 @@ impl Client {
         // published versions.
         /*println!(
           "tx {: >4X} {: >3}{} {: >3} {: >2X} {: >2X} {: >8X} {:?}",
-          u16::from_be_bytes(message_buffer[0..2].try_into().unwrap()),
-          &message_buffer[2] & 0b0111_1111,
-          if (&message_buffer[2] & 0b1000_0000) > 0 {'W'} else {' '},
-          &message_buffer[3],
-          &message_buffer[4],
-          &message_buffer[5],
-          u32::from_be_bytes(message_buffer[6..10].try_into().unwrap()),
-          &message_buffer[10..],
+          u16::from_be_bytes(header_buffer[0..2].try_into().unwrap()),
+          &header_buffer[2] & 0b0111_1111,
+          if (&header_buffer[2] & 0b1000_0000) > 0 {'W'} else {' '},
+          &header_buffer[3],
+          &header_buffer[4],
+          &header_buffer[5],
+          u32::from_be_bytes(header_buffer[6..10].try_into().unwrap()),
+          &message.text[0..],
         );// */
 
         // TRANSMIT MESSAGE
@@ -564,7 +580,8 @@ impl Client {
         // This operation is fallable, and failing to transmit due to a timeout
         // or other reason requires the client to disconnect.
         if stream.write_all(&length_buffer).is_err() {break 'disconnect};
-        if stream.write_all(&message_buffer).is_err() {break 'disconnect};
+        if stream.write_all(&header_buffer).is_err() {break 'disconnect};
+        if stream.write_all(&message.text).is_err() {break 'disconnect};
 
         // FINISH
         //
@@ -709,63 +726,6 @@ pub struct Message {
   /// [Presentation Type]: MessageHeader::presentation_type
   /// [Session Type]:      MessageHeader::session_type
   pub text: Vec<u8>,
-}
-impl From<&Message> for Vec<u8> {
-  /// ### SERIALIZE MESSAGE
-  /// 
-  /// Converts a [Message] into raw bytes.
-  /// 
-  /// [Message]: Message
-  fn from(val: &Message) -> Self {
-    // SERALIZE
-    //
-    // A vector is created to contain both the header and the data.
-    let mut vec: Vec<u8> = vec![];
-    // The header is converted into a byte array and added to the vector.
-    let header_bytes: [u8;10] = val.header.into();
-    vec.extend(header_bytes.iter());
-    // The message data is added to the vector.
-    vec.extend(&val.text);
-
-    // FINISH
-    //
-    // Because this operation is infallable, the serialized version of the
-    // message is now provided.
-    vec
-  }
-}
-impl TryFrom<Vec<u8>> for Message {
-  type Error = Error;
-
-  /// ### DESERIALIZE MESSAGE
-  /// 
-  /// Converts raw bytes into a [Message].
-  /// 
-  /// [Message]: Message
-  fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-    // VERIFY LENGTH
-    //
-    // If the length of the provided bytes is less than is required in order
-    // to deserialize the message header, the function exits early by providing
-    // an error.
-    if bytes.len() < 10 {return Err(Error::new(ErrorKind::InvalidData, "semi_e37::primitive::Message::try_from<Vec<u8>>"))}
-
-    // DESERIALIZE
-    //
-    // The message is now deseralized.
-    //
-    // TODO: It is possible we may want to accept &[u8] into this function
-    //       instead of Vec<u8>. Performance or flexibility has not yet been
-    //       considered.
-    Ok(Self {
-      // The header is now deserialized from the first 10 bytes of the provided
-      // bytes. This is an infallable operation due to our previous check.
-      header: MessageHeader::from(<[u8;10]>::try_from(&bytes[0..10]).unwrap()),
-
-      // Any remaining bytes are now considered to be the message text.
-      text: bytes[10..].to_vec(),
-    })
-  }
 }
 
 /// ## MESSAGE HEADER
