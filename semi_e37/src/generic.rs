@@ -253,14 +253,36 @@ impl Client {
     self: &Arc<Self>,
     entity: &str,
   ) -> Result<(SocketAddr, Receiver<(MessageID, semi_e5::Message)>), Error> {
-    // Connect Primitive Client
-    let (socket, rx_receiver) = self.primitive_client.connect(entity, self.parameter_settings.connect_mode, self.parameter_settings.t5, self.parameter_settings.t8)?;
-    // Create Channel
+    // CONNECT PRIMITIVE CLIENT
+    //
+    // The primitive client is told to initiate a connection using the provided
+    // entity and saved connection mode. This operation is fallable, as the 
+    // TCP/IP connection handling logic exists within the primitive client.
+    let (socket, rx_receiver) =
+      self.primitive_client.connect(
+        entity,
+        self.parameter_settings.connect_mode,
+        self.parameter_settings.t5,
+        self.parameter_settings.t8,
+      )?;
+
+    // CREATE DATA MESSAGE CHANNEL
+    //
+    // A new channel is created for received data messages to be passed through.
     let (data_sender, data_receiver) = channel::<(MessageID, semi_e5::Message)>();
-    // Start RX Thread
+
+    // START RECEIVE PROCEDURE
+    //
+    // The receive procedure is not called externally, instead upon connection
+    // a new thread which runs automatically is started. It is provided with
+    // the sending end of the data message channel.
     let clone: Arc<Client> = self.clone();
     thread::spawn(move || {clone.receive(rx_receiver, data_sender)});
-    // Finish
+
+    // FINISH
+    //
+    // The caller is now provided with the socket address and receiving end of
+    // the data message channel.
     Ok((socket, data_receiver))
   }
 
@@ -287,13 +309,25 @@ impl Client {
   pub fn disconnect(
     self: &Arc<Self>,
   ) -> Result<(), Error> {
-    // TO: NOT CONNECTED
+    // DISCONNECT PRIMITIVE CLIENT
+    //
+    // The primitive client is told to sever any existing connection.
     let result: Result<(), Error> = self.primitive_client.disconnect();
-    // TO: NOT SELECTED
+
+    // MOVE TO NOT SELECTED
+    //
+    // Regardless of whether the disconnection worked, it is considered
+    // impossible, or too much of an edge case, for the primitive client to
+    // have failed to disconnect in a way that maintains an existing TCP/IP
+    // link, so we must move to the not selected state to reflect that.
     let _guard: std::sync::MutexGuard<'_, ()> = self.selection_mutex.lock().unwrap();
     self.selection_state.store(SelectionState::NotSelected, Relaxed);
     self.selection_count.store(0, Relaxed);
-    // Finish
+
+    // FINISH
+    //
+    // At this point, the only errors which may be relevant to the user come
+    // from the primitive client.
     result
   }
 }
@@ -456,35 +490,150 @@ impl Client {
     rx_receiver: Receiver<primitive::Message>,
     rx_sender: Sender<(MessageID, semi_e5::Message)>,
   ) {
+    // LOOP OVER INCOMING MESSAGES
+    //
+    // At this point, a message receiver is provided from the primitive client,
+    // so the messages it provides are looped over as an iterator. The for loop
+    // will quit once the primitive client has hung up the corresponding
+    // sender, therefore indicating that the TCP/IP connection has closed.
     for primitive_message in rx_receiver {
+      // COPY PRIMITIVE HEADER
+      //
+      // For certain operations where the information directly from the
+      // primitive message header is wanted, we copy it here, as primitive
+      // messages do not implement Copy and cannot be used later.
       let primitive_header = primitive_message.header;
+
+      // CONVERT PRIMITIVE MESSAGE
+      //
+      // The generic client can only handle HSMS defined message types, not all
+      // possible messages with the HSMS header structure, so we have to
+      // convert whatever messages we receive into generic messages first.
       match Message::try_from(primitive_message) {
+        // INVALID MESSAGE
+        //
+        // Because the conversion of primitive messages into generic messages
+        // is fallable, the case where it was invalid for conversion is handled
+        // here.
+        Err(reject_reason) => {
+          // TRANSMIT REJECT REQUEST
+          //
+          // Here, we transmit a reject request, informing the client on the
+          // other end of the issue had in parsing the message they sent us.
+          if self.primitive_client.transmit(Message {
+            id: MessageID {
+              session: primitive_header.session_id,
+              system: primitive_header.system,
+            },
+            contents: MessageContents::RejectRequest(
+              // PRESENTATION/SESSION TYPE
+              //
+              // The standard is pretty clear that setting this byte to the
+              // presentation type should only be done if the message had an
+              // invalid presentation type, and should be set to the session
+              // type in all other cases.
+              match reject_reason {
+                RejectReason::UnsupportedPresentationType => primitive_header.presentation_type,
+                _ => primitive_header.session_type,
+              },
+
+              // REJECT REASON
+              //
+              // The reject reason code provided by the conversion function's
+              // result is used, as we trust it to accurately describe the
+              // problem we had in parsing the message.
+              reject_reason as u8,
+            ),
+          }.into()).is_err() {break}
+        }
+
+        // VALID MESSAGE
+        //
+        // When this branch is reached, it means that the primitive message was
+        // a valid generic message, so that can proceed to be handled based on
+        // the kind of message it was.
         Ok(rx_message) => match rx_message.contents {
-          // RX: Data Message
+          // DATA MESSAGE
+          //
+          // Data messages are the most complex case to handle. They are only
+          // allowed to be recieved when the client is in the selected state,
+          // and certain properties of the message must be inspected to
+          // determine if it requires a response or is a response to another
+          // message.
           MessageContents::DataMessage(data) => {
             match self.selection_state.load(Relaxed) {
+              // NOT SELECTED
+              //
+              // It is inappropriate to receive data messages while in the not
+              // selected state.
+              SelectionState::NotSelected => {
+                // TRANSMIT REJECT REQUEST
+                //
+                // Here, we transmit a reject request, informing the
+                // client on the other end that the client is not in the
+                // selected state.
+                if self.primitive_client.transmit(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::RejectRequest(0, RejectReason::EntityNotSelected as u8)
+                }.into()).is_err() {break}
+              }
+
               // SELECTED
+              //
+              // When selected, it is appropriate to receive data messages.
               SelectionState::Selected => {
-                // RX: Primary Data Message
+                // PRIMARY DATA MESSAGE
+                //
+                // If the data message is a primary data message, we can
+                // proceed to send it through the channel provided.
                 if data.function % 2 == 1 {
-                  // INBOX: New Transaction
-                  if rx_sender.send((rx_message.id, data)).is_err() {break}
+                  // SEND DATA MESSAGE
+                  //
+                  // The message is now provided to the other end of the data
+                  // message channel.
+                  if rx_sender.send((rx_message.id, data)).is_err() {
+                    // If the other end of the data message channel has hung
+                    // up, there is no point in continuing to receive messages,
+                    // so the thread stops here.
+                    break
+                  }
                 }
-                // RX: Response Data Message
+
+                // RESPONSE DATA MESSAGE
+                //
+                // If the data message is a response data message, we must
+                // proceed to see if it fulfills any open transactions.
                 else {
-                  // OUTBOX: Find Transaction
+                  // FIND TRANSACTION IN OUTBOX
+                  //
+                  // Here, we match the incoming message to an outgoing message
+                  // found in the outbox.
                   match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
-                    // OUTBOX: Transaction Not Found
+                    // TRANSACTION NOT FOUND
+                    //
+                    // If the transaction isn't found, then this response
+                    // message is invalid and should be handled accordingly.
                     None => {
-                      // TX: Reject.req 
+                      // TRANSMIT REJECT REQUEST
+                      //
+                      // Here, we transmit a reject request, informing the
+                      // client on the other end that the transaction is not
+                      // open.
                       if self.primitive_client.transmit(Message {
                         id: rx_message.id,
                         contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
                       }.into()).is_err() {break}
                     }
-                    // OUTBOX: Transaction Found
+
+                    // TRANSACTION FOUND
+                    //
+                    // If the transaction is found, then this response message
+                    // is valid and should be given to the thread expecting it.
                     Some(sender) => {
-                      // OUTBOX: Complete Transaction
+                      // COMPLETE TRANSACTION
+                      //
+                      // Here, the open transmission procedure thread is given
+                      // the response message it is waiting to receive.
                       sender.send(Some(Message {
                         id: rx_message.id,
                         contents: MessageContents::DataMessage(data),
@@ -492,18 +641,15 @@ impl Client {
                     }
                   }
                 }
-              },
-              // NOT SELECTED
-              _ => {
-                // TX: Reject.req
-                if self.primitive_client.transmit(Message {
-                  id: rx_message.id,
-                  contents: MessageContents::RejectRequest(0, RejectReason::EntityNotSelected as u8)
-                }.into()).is_err() {break}
-              },
+              }
             }
           }
-          // RX: Select.req
+
+          // SELECT REQUEST
+          //
+          // Select requests can be received at any time, but require the use
+          // of a callback to respond to, as changing the selection state or
+          // selection count must be handled immediately.
           MessageContents::SelectRequest => {
             match self.selection_mutex.try_lock() {
               Ok(_guard) => {
@@ -522,27 +668,47 @@ impl Client {
                   id: rx_message.id,
                   contents: MessageContents::SelectResponse(select_status as u8),
                 }.into()).is_err() {break};
-              },
+              }
               Err(_error) => {
                 // TODO: probably appropriate to put something here, maybe to do with the simulatenous select procedure?
-              },
+              }
             }
           }
-          // RX: Select.rsp
+
+          // SELECT RESPONSE
+          //
+          // Select responses can only be recieved after a select request has
+          // been transmitted.
           MessageContents::SelectResponse(select_status) => {
-            // OUTBOX: Find Transaction
+            // FIND TRANSACTION IN OUTBOX
+            //
+            // Here, we match the incoming message to an outgoing message found
+            // in the outbox.
             match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
-              // OUTBOX: Transaction Not Found
+              // TRANSACTION NOT FOUND
+              //
+              // If the transaction isn't found, then this response message is
+              // invalid and should be handled accordingly.
               None => {
-                // TX: Reject.req 
+                // TRANSMIT REJECT REQUEST
+                //
+                // Here, we transmit a reject request, informing the client on
+                // the other end that the transaction is not open.
                 if self.primitive_client.transmit(Message {
                   id: rx_message.id,
                   contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
                 }.into()).is_err() {break}
               }
-              // OUTBOX: Transaction Found
+
+              // TRANSACTION FOUND
+              //
+              // If the transaction is found, then this response message is
+              // valid and should be given to the thread expecting it.
               Some(sender) => {
-                // OUTBOX: Complete Transaction
+                // COMPLETE TRANSACTION
+                //
+                // Here, the open transmission procedure thread is given the
+                // response message it is waiting to receive.
                 sender.send(Some(Message {
                   id: rx_message.id,
                   contents: MessageContents::SelectResponse(select_status),
@@ -550,7 +716,12 @@ impl Client {
               }
             }
           }
-          // RX: Deselect.req
+
+          // DESELECT REQUEST
+          //
+          // Deselect requests can be received while in the selected state, but
+          // require the use of a callback to respond to, as changing the
+          // selection state or selection count must be handled immediately.
           MessageContents::DeselectRequest => {
             match self.selection_mutex.try_lock() {
               Ok(_guard) => {
@@ -585,21 +756,41 @@ impl Client {
               },
             }
           }
-          // RX: Deselect.rsp
+
+          // DESELECT RESPONSE
+          //
+          // Deselect responses can only be received after a deselect request
+          // has been transmitted.
           MessageContents::DeselectResponse(deselect_status) => {
-            // OUTBOX: Find Transaction
+            // FIND TRANSACTION IN OUTBOX
+            //
+            // Here, we match the incoming message to an outgoing message found
+            // in the outbox.
             match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
-              // OUTBOX: Transaction Not Found
+              // TRANSACTION NOT FOUND
+              //
+              // If the transaction isn't found, then this response message is
+              // invalid and should be handled accordingly.
               None => {
-                // TX: Reject.req 
+                // TRANSMIT REJECT REQUEST
+                //
+                // Here, we transmit a reject request, informing the client on
+                // the other end that the transaction is not open.
                 if self.primitive_client.transmit(Message {
                   id: rx_message.id,
                   contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
                 }.into()).is_err() {break}
               }
-              // OUTBOX: Transaction Found
+
+              // TRANSACTION FOUND
+              //
+              // If the transaction is found, then this response message is
+              // valid and should be given to the thread expecting it.
               Some(sender) => {
-                // OUTBOX: Complete Transaction
+                // COMPLETE TRANSACTION
+                //
+                // Here, the open transmission procedure thread is given the
+                // response message it is waiting to receive.
                 sender.send(Some(Message {
                   id: rx_message.id,
                   contents: MessageContents::DeselectResponse(deselect_status),
@@ -607,60 +798,18 @@ impl Client {
               }
             }
           }
-          // RX: Linktest.req
-          MessageContents::LinktestRequest => {
-            // TX: Linktest.rsp
-            if self.primitive_client.transmit(Message{
-              id: rx_message.id,
-              contents: MessageContents::LinktestResponse,
-            }.into()).is_err() {break};
-          }
-          // RX: Linktest.rsp
-          MessageContents::LinktestResponse => {
-            // OUTBOX: Find Transaction
-            match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
-              // OUTBOX: Transaction Not Found
-              None => {
-                // TX: Reject.req 
-                if self.primitive_client.transmit(Message {
-                  id: rx_message.id,
-                  contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
-                }.into()).is_err() {break}
-              }
-              // OUTBOX: Transaction Found
-              Some(sender) => {
-                // OUTBOX: Complete Transaction
-                sender.send(Some(Message {
-                  id: rx_message.id,
-                  contents: MessageContents::LinktestResponse,
-                })).unwrap();
-              }
-            }
-          }
-          // RX: Reject.req
-          MessageContents::RejectRequest(ps_type, reason_code) => {
-            // OUTBOX: Find Transaction
-            match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
-              // OUTBOX: Transaction Not Found
-              None => {
-                // TX: Reject.req 
-                if self.primitive_client.transmit(Message {
-                  id: rx_message.id,
-                  contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
-                }.into()).is_err() {break}
-              }
-              // OUTBOX: Transaction Found
-              Some(sender) => {
-                // OUTBOX: Complete Transaction
-                sender.send(Some(Message {
-                  id: rx_message.id,
-                  contents: MessageContents::RejectRequest(ps_type, reason_code),
-                })).unwrap();
-              }
-            }
-          }
-          // RX: Separate.req
+
+          // SEPARATE REQUEST
+          //
+          // Separate requests can be received while in the selected state, but
+          // require the use of a callback to respond to, as changing the
+          // selection state or selection count must be handled immediately.
+          // Unlike other types of selection state handling messages, there is
+          // no corresponding response message, as separate requests are
+          // purposefully designed to be one-sided, immediate closures of a
+          // previously formed selection.
           MessageContents::SeparateRequest => {
+            // LOCK SELECTION STATE
             let _guard: std::sync::MutexGuard<'_, ()> = self.selection_mutex.lock().unwrap();
             // CALLBACK
             let selection_count = self.selection_count.load(Relaxed);
@@ -677,23 +826,120 @@ impl Client {
               }
             }
           }
-        }
-        Err(reject_reason) => {
-          // TX: Reject.req
-          if self.primitive_client.transmit(Message {
-            id: MessageID {
-              session: primitive_header.session_id,
-              system: primitive_header.system,
-            },
-            contents: MessageContents::RejectRequest(match reject_reason {
-              RejectReason::UnsupportedPresentationType => primitive_header.presentation_type,
-              _ => primitive_header.session_type,
-            }, reject_reason as u8),
-          }.into()).is_err() {break}
+
+          // LINKTEST REQUEST
+          //
+          // Linktest requests can be received at any time the connection is
+          // active. The point of the linktest procedure is to test the
+          // connection integrity and this faithfully replies that the
+          // connection is active when prompted to do so.
+          MessageContents::LinktestRequest => {
+            // TRANSMIT LINKTEST RESPONSE
+            //
+            // Because this procedure does not change any state, we can respond
+            // immediately to the request without any user input.
+            if self.primitive_client.transmit(Message{
+              id: rx_message.id,
+              contents: MessageContents::LinktestResponse,
+            }.into()).is_err() {break};
+          }
+
+          // LINKTEST RESPONSE
+          //
+          // Linktest responses can only be received after a linktest request
+          // has been transmitted.
+          MessageContents::LinktestResponse => {
+            // FIND TRANSACTION IN OUTBOX
+            //
+            // Here, we match the incoming message to an outgoing message found
+            // in the outbox.
+            match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
+              // TRANSACTION NOT FOUND
+              //
+              // If the transaction isn't found, then this response message is
+              // invalid and should be handled accordingly.
+              None => {
+                // TRANSMIT REJECT REQUEST
+                //
+                // Here, we transmit a reject request, informing the client on
+                // the other end that the transaction is not open.
+                if self.primitive_client.transmit(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::RejectRequest(SessionType::LinktestResponse as u8, RejectReason::TransactionNotOpen as u8)
+                }.into()).is_err() {break}
+              }
+
+              // TRANSACTION FOUND
+              //
+              // If the transaction is found, then this response message is
+              // valid and should be given to the thread expecting it.
+              Some(sender) => {
+                // COMPLETE TRANSACTION
+                //
+                // Here, the open transmission procedure thread is given the
+                // response message it is waiting to receive.
+                sender.send(Some(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::LinktestResponse,
+                })).unwrap();
+              }
+            }
+          }
+
+          // REJECT REQUEST
+          //
+          // Reject requests can only be recieved after some corresponding
+          // message has gone out and was unable to be handled properly by the
+          // client on the other end.
+          MessageContents::RejectRequest(ps_type, reason_code) => {
+            // FIND TRANSACTION IN OUTBOX
+            //
+            // Here, we match the incoming message to an outgoing message found
+            // in the outbox.
+            match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
+              // TRANSACTION NOT FOUND
+              //
+              // If the transaction isn't found, then this response message is
+              // invalid and should be handled accordingly.
+              None => {
+                // TRANSMIT REJECT REQUEST
+                //
+                // Here, we transmit a reject request, informing the client on
+                // the other end that the transaction is not open.
+                //
+                // TODO: This may be innapropriate to transmit in the case that
+                //       a reject request has been received?
+                if self.primitive_client.transmit(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
+                }.into()).is_err() {break}
+              }
+
+              // TRANSACTION FOUND
+              //
+              // If the transaction is found, then this response message is
+              // valid and should be given to the thread expecting it.
+              Some(sender) => {
+                // COMPLETE TRANSACTION
+                //
+                // Here, the open transmission procedure thread is given the
+                // response message it is waiting to receive.
+                sender.send(Some(Message {
+                  id: rx_message.id,
+                  contents: MessageContents::RejectRequest(ps_type, reason_code),
+                })).unwrap();
+              }
+            }
+          }
         }
       }
     }
-    // OUTBOX: CLEAR
+
+    // CLEAR OUTBOX
+    //
+    // Now that the TCP/IP connection is closed, all pending transactions
+    // should also be immediately closed with none rather than being forced
+    // to time out.
     for (_, sender) in self.outbox.lock().unwrap().deref_mut().drain() {
       let _ = sender.send(None);
     }
@@ -727,48 +973,148 @@ impl Client {
     reply_expected: bool,
     delay: Duration,
   ) -> Result<Option<Message>, Error> {
+    // COPY MESSAGE ID
+    //
+    // Because messages cannot be copied, but we want to use the message ID
+    // after the message has been moved, we copy the message ID here.
     let message_id: MessageID = message.id;
+
+    // TRANSMIT
+    //
+    // Logic to transmit the message, and possibly attain a reception channel
+    // for a response message if desired is now undertaken. This block is set
+    // up this way to handle locking the outbox properly, it contains an early
+    // exit if the caller has deemed that a reply is not expected.
     let receiver: oneshot::Receiver<Option<Message>> = {
-      // OUTBOX: LOCK
+      // LOCK OUTBOX
+      //
+      // Here, the outbox is locked for editing by the current thread, so that
+      // the message can be transmitted in whole and a choice made after
+      // that transmission has finished on whether to add it to the outbox,
+      // without running the risk of another thread immediately queueing a
+      // conflicting message. This locking is only done when a response is
+      // expected.
+      //
+      // TODO: It may be necessary to inspect the outbox at this point to
+      //       prevent conflicting messages from being transmitted and only
+      //       caught later.
       let outbox_lock: Option<MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>>> = if reply_expected {Some(self.deref().outbox.lock().unwrap())} else {None};
-      // TX
+
+      // TRANSMIT MESSAGE
+      //
+      // The message is now passed to the primitive client for transmission
+      // over the TCP/IP connection.
       match self.primitive_client.transmit(message.into()) {
-        // TX: Success
+        // TRANSMISSION FAILURE
+        //
+        // If an error is received from the primitive client, it usually
+        // means that the TCP/IP connection was severed.
+        Err(error) => {
+          // DISCONNECT
+          //
+          // We now call disconnect on the generic client to ensure that the
+          // primitive client is disconnect if it hasn't been already and that
+          // the selection state is reset to reflect that.
+          let _ = self.disconnect();
+          return Err(error)
+        }
+
+        // TRANSMISSION SUCCESS
+        //
+        // Now that the transmission has finished, we can proceed to report to
+        // handle it based on whether or not the caller expects a reply.
         Ok(()) => {
+          // REPLY
+          //
+          // Action is now taken based on whether or not a reply is needed to
+          // satisfy the caller.
+          //
+          // TODO: Perhaps the reply expected bit should be done by using
+          //       Option on the timeout duration rather than a boolean, as it
+          //       doesn't make sense to talk about the timeout time if a reply
+          //       is not expected.
           match outbox_lock {
-            // REPLY NOT EXPECTED: Finish
+            // REPLY NOT EXPECTED
+            //
+            // If no reply to the message is expected we can inform the caller
+            // that the transmission procedure finished.
             None => return Ok(None),
+
             // REPLY EXPECTED
+            //
+            // If the caller does expect a reply, then we have to handle that
+            // via the outbox.
             Some(mut outbox) => {
-              // OUTBOX: Create Transaction
+              // CREATE MESSAGE ONESHOT CHANNEL
+              //
+              // A new oneshot channel is created for the response message to
+              // be received by this thread through.
               let (sender, receiver) = oneshot::channel::<Option<Message>>();
+
+              // ADD TRANSACTION TO OUTBOX
+              //
+              // We now attempt to stuff the new transaction into the outbox,
+              // ensuring that it does not conflict with another currently open
+              // transaction.
+              //
+              // TODO: If we check earlier for whether the transaction is open
+              //       already, we may be able to use insert rather than
+              //       try_insert here.
               match outbox.deref_mut().try_insert(message_id, sender) {
+                // TRANSACTION ALREADY IN OUTBOX
+                //
+                // If the transaction is already found in the outbox due to a
+                // conflicting message ID being provided, the function should
+                // stop here and the caller informed of the issue.
                 Err(_error) => return Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::transmit")),
+
+                // TRANSACTION ADDED TO OUTBOX
+                //
+                // Now that the transaction has been added into the outbox, we
+                // can proceed to wait for a reply. The lock should be broken
+                // here as its scope is exited.
                 Ok(_sender) => receiver,
               }
             }
           }
         }
-        // TX: Failure
-        Err(error) => {
-          // DISCONNECT
-          let _ = self.disconnect();
-          return Err(error)
-        }
       }
     };
-    // RX
+
+    // WAIT TO RECEIVE REPLY
+    //
+    // Now that the transaction has been added to the outbox, we can proceed to
+    // wait for the receive procedure to get a reply with the provided timeout.
     let rx_result: Result<Option<Message>, _> = receiver.recv_timeout(delay);
-    // OUTBOX: Remove Transaction
-    let mut outbox: MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>> = self.outbox.lock().unwrap();
+
+    // INSPECT REPLY
+    //
+    // At this point, we either have a reply, or waiting for it has timed out.
     match rx_result {
-      // RX: Success
-      Ok(rx_message) => Ok(rx_message),
-      // RX: Failure
+      // NO REPLY
+      //
+      // Although no reply has been received, it is up to the caller to decide
+      // how to respond to that.
       Err(_e) => {
-        outbox.deref_mut().remove(&message_id);
+        // REMOVE TRANSACTION FROM OUTBOX
+        //
+        // If a reply had been received, the receive protocol would have
+        // arleady removed the transaction from the outbox in order to pull it
+        // up, but since this has not occurred, we must do it ourselves here in
+        // order to prevent the outbox from becoming a polluted mess.
+        self.outbox.lock().unwrap().deref_mut().remove(&message_id);
+
+        // FINISH
+        //
+        // The caller is informed that no reply has been received.
         Ok(None)
       }
+
+      // REPLY
+      //
+      // Since a reply has now been received, everything has gone according to
+      // plan, and we can pass that onto the caller unconditionally.
+      Ok(rx_message) => Ok(rx_message),
     }
   }
 
@@ -823,15 +1169,46 @@ impl Client {
     id: MessageID,
     message: semi_e5::Message,
   ) -> JoinHandle<Result<Option<semi_e5::Message>, Error>> {
+    // CLONE CLIENT
+    //
+    // Because we want this function to run as a separate thread, for the
+    // caller to possibly do other things while waiting for a reply, the client
+    // is cloned here.
     let clone: Arc<Client> = self.clone();
+
+    // REPLY EXPECTED
+    //
+    // According to the standard, data messages with an odd function number and
+    // the w-bit set require a reply, and all other types of messages do not.
     let reply_expected: bool = message.function % 2 == 1 && message.w;
+
+    // SPAWN THREAD
+    //
+    // Now that the client is cloned, we can spawn a new thread which makes use
+    // of the clone rather than self.
     thread::spawn(move || {
+      // SELECTION STATE
+      //
+      // Because this procedure's appropriateness depends on the selection
+      // state, it is inspected here.
       match clone.selection_state.load(Relaxed) {
         // NOT SELECTED
+        //
+        // It is inappropriate to send a data message when not in the not
+        // selected state, so the procedure is rejected here.
+        //
+        // TODO: Probably want a different error kind here than AlreadyExists.
         SelectionState::NotSelected => Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::data")),
+
         // SELECTED
+        //
+        // Now that we know the client is in the appropriate state, we may
+        // transmit the data message.
         SelectionState::Selected => {
-          // TX: Data Message
+          // TRANSMIT DATA MESSAGE
+          //
+          // Now that we are sure the client is in the correct state, we can
+          // proceed to transmit the data message.
           match clone.transmit(
             Message {
               id,
@@ -840,29 +1217,55 @@ impl Client {
             reply_expected,
             clone.parameter_settings.t3,
           )?{
-            // RX: Response
-            Some(rx_message) => {
-              match rx_message.contents {
-                // RX: Data
-                MessageContents::DataMessage(data_message) => Ok(Some(data_message)),
-                // RX: Reject.req
-                MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::data")),
-                // RX: Unknown
-                _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::data")),
-              }
-            },
-            // RX: No Response
+            // NO RESPONSE
+            //
+            // If no response was given, that may be fine for this procedure
+            // depending on whether one was expected.
             None => {
               // REPLY EXPECTED
+              //
+              // At this point, it is considered a fatal communications failure
+              // to have no received a response to this procedure.
               if reply_expected {
-                // TO: NOT CONNECTED
+                // DISCONNECT
+                //
+                // The proper response to this fatal communications failure is
+                // to disconnect the client.
+                //
+                // TODO: HSMS-SS does NOT disconnect when the data procedure
+                //       fails, which may require this behavior to be optional?
                 clone.disconnect()?;
                 Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::generic::Client::data"))
-                // TODO: HSMS-SS does NOT disconnect when the Data Procedure fails, may require this behavior to be optional.
               }
+
               // REPLY NOT EXPECTED
-              else {
-                Ok(None)
+              //
+              // At this point, we are done, and no further action is taken.
+              else {Ok(None)}
+            }
+
+            // RESPONSE
+            //
+            // Now that we have gotten a response, we can proceed to handle it.
+            Some(rx_message) => {
+              match rx_message.contents {
+                // DATA MESSAGE
+                //
+                // The reply we wanted has been received, and can be handed to
+                // the caller.
+                MessageContents::DataMessage(data_message) => Ok(Some(data_message)),
+
+                // REJECT REQUEST
+                //
+                // At this point, the client on the other end has explicitly
+                // rejected the procedure, and no further action may be taken.
+                MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::data")),
+
+                // UNKNOWN
+                //
+                // A response has been found, but for some reason, it is not of
+                // the expected type, so we cannot do anything further.
+                _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::data")),
               }
             }
           }
@@ -912,10 +1315,29 @@ impl Client {
     self: &Arc<Self>,
     id: MessageID,
   ) -> JoinHandle<Result<(), Error>> {
+    // CLONE CLIENT
+    //
+    // Because we want this function to run as a separate thread, for the
+    // caller to possibly do other things while waiting for a reply, the client
+    // is cloned here.
     let clone: Arc<Client> = self.clone();
+
+    // SPAWN THREAD
+    //
+    // Now that the client is cloned, we can spawn a new thread which makes use
+    // of the clone rather than self.
     thread::spawn(move || {
+      // LOCK SELECTION STATE
+      //
+      // Because this procedure may edit the selection state, it is
+      // important to establish a critical section.
       let _guard: MutexGuard<'_, ()> = clone.selection_mutex.lock().unwrap();
-      // TX: Select.req
+
+      // TRANSMIT SELECT REQUEST
+      //
+      // Within the generic services, it is appropriate to send a select
+      // request at any time, so we can transmit without checking first what
+      // state the client is in. A reply is expected in this procedure.
       match clone.transmit(
         Message {
           id,
@@ -924,34 +1346,75 @@ impl Client {
         true,
         clone.parameter_settings.t6,
       )?{
-        // RX: No Response
+        // NO RESPONSE
+        //
+        // At this point, it is considered a fatal communications failure
+        // to not have received a response to this procedure.
         None => {
           // DISCONNECT
+          //
+          // We now call disconnect on the generic client to ensure that the
+          // primitive client is disconnect if it hasn't been already and that
+          // the selection state is reset to reflect that.
           clone.disconnect()?;
           Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::generic::Client::select"))
         }
-        // RX: Response
+
+        // RESPONSE
+        //
+        // Now that we have gotten a response, we can proceed to handle it.
         Some(rx_message) => {
           match rx_message.contents {
-            // RX: Select.rsp
+            // SELECT RESPONSE
+            //
+            // The reply we wanted has been received and we can now proceed to
+            // act according to its contents.
             MessageContents::SelectResponse(select_status) => {
-              // RX: Select.rsp Success
+              // SUCCESS
+              //
+              // The other client has allowed the procedure.
               if select_status == SelectStatus::Ok as u8 {
-                // TO: SELECTED
-                clone.selection_state.store(SelectionState::Selected, Relaxed);
-                // SELECTION COUNT + 1
+                // ADD TO SELECTION COUNT
+                //
+                // At this point, the select procedure has succeeded, so
+                // the selection count should be incremented.
                 clone.selection_count.store(clone.selection_count.load(Relaxed) + 1, Relaxed);
+                
+                // MOVE TO NOT SELECTED
+                //
+                // It doesn't matter if the client is already in the selected
+                // state, overwriting that harms nothing, so we can set that
+                // unconditionally here.
+                clone.selection_state.store(SelectionState::Selected, Relaxed);
+
                 // FINISH
+                //
+                // The select procedure has now succeeded.
                 Ok(())
               }
-              // RX: Select.rsp Failure
+
+              // FAILURE
+              //
+              // The other client has denied the procedure for some given
+              // reason.
+              //
+              // TODO: It may be appropriate to pass the select status
+              //       onto the caller in the error payload?
               else {
                 Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::select"))
               }
             }
-            // RX: Reject.req
+
+            // REJECT REQUEST
+            //
+            // At this point, the client on the other end has explicitly
+            // rejected the procedure, and no further action may be taken.
             MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::select")),
-            // RX: Unknown
+
+            // UNKNOWN
+            //
+            // A response has been found, but for some reason, it is not of
+            // the expected type, so we cannot do anything further.
             _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::select")),
           }
         }
@@ -1001,15 +1464,44 @@ impl Client {
     self: &Arc<Self>,
     id: MessageID,
   ) -> JoinHandle<Result<(), Error>> {
+    // CLONE CLIENT
+    //
+    // Because we want this function to run as a separate thread, for the
+    // caller to possibly do other things while waiting for a reply, the client
+    // is cloned here.
     let clone: Arc<Client> = self.clone();
+
+    // SPAWN THREAD
+    //
+    // Now that the client is cloned, we can spawn a new thread which makes use
+    // of the clone rather than self.
     thread::spawn(move || {
+      // SELECTION STATE
+      //
+      // Because this procedure's appropriateness depends on the selection
+      // state, it is inspected here.
       match clone.selection_state.load(Relaxed) {
         // NOT SELECTED
+        //
+        // It is inappropriate to send a deselect request when not in the not
+        // selected state, so the procedure is rejected here.
         SelectionState::NotSelected => Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::deselect")),
+
         // SELECTED
+        //
+        // Now that we know the client is in the appropriate state, we may
+        // transmit the deselect request.
         SelectionState::Selected => {
+          // LOCK SELECTION STATE
+          //
+          // Because this procedure may edit the selection state, it is
+          // important to establish a critical section.
           let _guard: MutexGuard<'_, ()> = clone.selection_mutex.lock().unwrap();
-          // TX: Deselect.req
+
+          // TRANSMIT DESELECT REQUEST
+          //
+          // Now that everything has been set up, a transmission may occur.
+          // A reply is expected in this procedure.
           match clone.transmit(
             Message {
               id,
@@ -1018,41 +1510,182 @@ impl Client {
             true,
             clone.parameter_settings.t6,
           )?{
-            // RX: Response
+            // NO RESPONSE
+            //
+            // At this point, it is considered a fatal communications failure
+            // to not have received a response to this procedure.
+            None => {
+              // DISCONNECT
+              //
+              // The proper response to this fatal communications failure is to
+              // disconnect the client.
+              clone.disconnect()?;
+              Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::generic::Client::deselect"))
+            }
+
+            // RESPONSE
+            //
+            // Now that we have gotten a response, we can proceed to handle it.
             Some(rx_message) => {
               match rx_message.contents {
-                // RX: Deselect.rsp
+                // DESELECT RESPONSE
+                //
+                // The reply we wanted has been received and we can now proceed
+                // to act according to its contents.
                 MessageContents::DeselectResponse(deselect_status) => {
-                  // RX: Deselect.rsp Success
+                  // SUCCESS
+                  //
+                  // The other client has allowed the procedure.
                   if deselect_status == DeselectStatus::Ok as u8 {
-                    // SELECTION COUNT - 1
+                    // SUBTRACT FROM SELECTION COUNT
+                    //
+                    // At this point, the deselect procedure has succeeded, so
+                    // the selection count should be decremented.
                     clone.selection_count.store(clone.selection_count.load(Relaxed) - 1, Relaxed);
-                    // TO: NOT SELECTED
+
+                    // MOVE TO NOT SELECTED
+                    //
+                    // If the selection count has reached zero, this means its
+                    // time to move to the not selected state.
                     if clone.selection_count.load(Relaxed) == 0 {
                       clone.selection_state.store(SelectionState::NotSelected, Relaxed);
                     }
+
                     // FINISH
+                    //
+                    // The deselect procedure has now succeeded.
                     Ok(())
                   }
-                  // RX: Deselect.rsp Failure
-                  else {
-                    Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::deselect"))
-                  }
-                },
-                // RX: Reject.req
+
+                  // FAILURE
+                  //
+                  // The other client has denied the procedure for some given
+                  // reason.
+                  //
+                  // TODO: It may be appropriate to pass the deselect status
+                  //       onto the caller in the error payload?
+                  else {Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::deselect"))}
+                }
+
+                // REJECT REQUEST
+                //
+                // At this point, the client on the other end has explicitly
+                // rejected the procedure, and no further action may be taken.
                 MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::deselect")),
-                // RX: Unknown
+
+                // UNKNOWN
+                //
+                // A response has been found, but for some reason, it is not of
+                // the expected type, so we cannot do anything further.
                 _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::deselect")),
               }
-            },
-            // RX: No Response
-            None => {
-              // DISCONNECT
-              clone.disconnect()?;
-              Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::generic::Client::deselect"))
-            },
+            }
           }
-        },
+        }
+      }
+    })
+  }
+
+  /// ### SEPARATE PROCEDURE
+  /// **Based on SEMI E37-1109§7.9**
+  /// 
+  /// Asks the [Client] to initiate the [Separate Procedure] by transmitting a
+  /// [Separate.req] message.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// The [Connection State] must be in the [CONNECTED] state and the
+  /// [Selection State] must be in the [SELECTED] state to use this procedure.
+  /// 
+  /// Upon completion of the [Separate Procedure], the Selection Count is
+  /// decremented by one. If the Selection Count becomes zero, the
+  /// [NOT SELECTED] state is entered.
+  /// 
+  /// -------------------------------------------------------------------------
+  /// 
+  /// Although not done within this function, a [Client] in the [CONNECTED]
+  /// state will respond to having received a [Separate.req] message by calling
+  /// the [Separate Procedure Callback].
+  /// 
+  /// [Connection State]:            primitive::ConnectionState
+  /// [CONNECTED]:                   primitive::ConnectionState::Connected
+  /// [Selection State]:             SelectionState
+  /// [NOT SELECTED]:                SelectionState::NotSelected
+  /// [SELECTED]:                    SelectionState::Selected
+  /// [Client]:                      Client
+  /// [Separate Procedure]:          Client::separate
+  /// [Separate Procedure Callback]: ProcedureCallbacks::separate
+  /// [Separate.req]:                MessageContents::SeparateRequest
+  pub fn separate(
+    self: &Arc<Self>,
+    id: MessageID,
+  ) -> JoinHandle<Result<(), Error>> {
+    // CLONE CLIENT
+    //
+    // Because we want this function to run as a separate thread, for the
+    // caller to possibly do other things while waiting for the message to be
+    // transmitted, the client is cloned here.
+    let clone: Arc<Client> = self.clone();
+
+    // SPAWN THREAD
+    //
+    // Now that the client is cloned, we can spawn a new thread which makes use
+    // of the clone rather than self.
+    thread::spawn(move || {
+      // SELECTION STATE
+      //
+      // Because this procedure's appropriateness depends on the selection
+      // state, it is inspected here.
+      match clone.selection_state.load(Relaxed) {
+        // NOT SELECTED
+        //
+        // It is inappropriate to send a separate request when not in the not
+        // selected state, so the procedure is rejected here.
+        SelectionState::NotSelected => Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::separate")),
+
+        // SELECTED
+        //
+        // Now that we know the client is in the appropriate state, we may
+        // transmit the separate request.
+        SelectionState::Selected => {
+          // LOCK SELECTION STATE
+          //
+          // Because this procedure may edit the selection state, it is
+          // important to establish a critical section.
+          let _guard: MutexGuard<'_, ()> = clone.selection_mutex.lock().unwrap();
+
+          // TRANSMIT
+          //
+          // Now that everything has been set up, a transmission may occur. No
+          // reply is expected in this procedure.
+          clone.transmit(
+            Message {
+              id,
+              contents: MessageContents::SeparateRequest,
+            },
+            false,
+            clone.parameter_settings.t6,
+          )?;
+
+          // SUBTRACT FROM SELECTION COUNT
+          //
+          // At this point, the separate procedure has succeeded, so the
+          // selection count should be decremented.
+          clone.selection_count.store(clone.selection_count.load(Relaxed) - 1, Relaxed);
+
+          // MOVE TO NOT SELECTED
+          //
+          // If the selection count has reached zero, this means its time to
+          // move to the not selected state.
+          if clone.selection_count.load(Relaxed) == 0 {
+            clone.selection_state.store(SelectionState::NotSelected, Relaxed);
+          }
+
+          // FINISH
+          //
+          // The separate procedure has now succeeded.
+          Ok(())
+        }
       }
     })
   }
@@ -1094,9 +1727,22 @@ impl Client {
     self: &Arc<Self>,
     system: u32,
   ) -> JoinHandle<Result<(), Error>> {
+    // CLONE CLIENT
+    //
+    // Because we want this function to run as a separate thread, for the
+    // caller to possibly do other things while waiting for a reply, the client
+    // is cloned here.
     let clone: Arc<Client> = self.clone();
+
+    // SPAWN THREAD
+    //
+    // Now that the client is cloned, we can spawn a new thread which makes use
+    // of the clone rather than self.
     thread::spawn(move || {
-      // TX: Linktest.req
+      // TRANSMIT LINKTEST REQUEST
+      //
+      // It is appropriate to send a linktest request at any time. A reply is
+      // expected in this procedure.
       match clone.transmit(
         Message {
           id: MessageID {
@@ -1108,86 +1754,41 @@ impl Client {
         true,
         clone.parameter_settings.t6,
       )?{
-        // RX: Response
-        Some(rx_message) => {
-          match rx_message.contents {
-            // RX: Linktest.rsp
-            MessageContents::LinktestResponse => Ok(()),
-            // RX: Reject.req
-            MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::linktest")),
-            // RX: Unknown
-            _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::linktest")),
-          }
-        },
-        // RX: No Response
+        // NO RESPONSE
+        //
+        // At this point, it is considered a fatal communications failure
+        // to not have received a response to this procedure.
         None => {
           // DISCONNECT
+          //
+          // The proper response to this fatal communications failure is to
+          // disconnect the client.
           clone.disconnect()?;
           Err(Error::new(ErrorKind::ConnectionAborted, "semi_e37::generic::Client::linktest"))
-        },
-      }
-    })
-  }
+        }
 
-  /// ### SEPARATE PROCEDURE
-  /// **Based on SEMI E37-1109§7.9**
-  /// 
-  /// Asks the [Client] to initiate the [Separate Procedure] by transmitting a
-  /// [Separate.req] message.
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// The [Connection State] must be in the [CONNECTED] state and the
-  /// [Selection State] must be in the [SELECTED] state to use this procedure.
-  /// 
-  /// Upon completion of the [Separate Procedure], the Selection Count is
-  /// decremented by one. If the Selection Count becomes zero, the
-  /// [NOT SELECTED] state is entered.
-  /// 
-  /// -------------------------------------------------------------------------
-  /// 
-  /// Although not done within this function, a [Client] in the [CONNECTED]
-  /// state will respond to having received a [Separate.req] message by calling
-  /// the [Separate Procedure Callback].
-  /// 
-  /// [Connection State]:            primitive::ConnectionState
-  /// [CONNECTED]:                   primitive::ConnectionState::Connected
-  /// [Selection State]:             SelectionState
-  /// [NOT SELECTED]:                SelectionState::NotSelected
-  /// [SELECTED]:                    SelectionState::Selected
-  /// [Client]:                      Client
-  /// [Separate Procedure]:          Client::separate
-  /// [Separate Procedure Callback]: ProcedureCallbacks::separate
-  /// [Separate.req]:                MessageContents::SeparateRequest
-  pub fn separate(
-    self: &Arc<Self>,
-    id: MessageID,
-  ) -> JoinHandle<Result<(), Error>> {
-    let clone: Arc<Client> = self.clone();
-    thread::spawn(move || {
-      match clone.selection_state.load(Relaxed) {
-        // NOT SELECTED: ERROR
-        SelectionState::NotSelected => Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::separate")),
-        // SELECTED
-        SelectionState::Selected => {
-          let _guard: MutexGuard<'_, ()> = clone.selection_mutex.lock().unwrap();
-          // TX: Separate.req
-          clone.transmit(
-            Message {
-              id,
-              contents: MessageContents::SeparateRequest,
-            },
-            false,
-            clone.parameter_settings.t6,
-          )?;
-          // SELECTION COUNT - 1
-          clone.selection_count.store(clone.selection_count.load(Relaxed) - 1, Relaxed);
-          // TO: NOT SELECTED
-          if clone.selection_count.load(Relaxed) == 0 {
-            clone.selection_state.store(SelectionState::NotSelected, Relaxed);
+        // RESPONSE
+        //
+        // Now that we have gotten a response, we can proceed to handle it.
+        Some(rx_message) => {
+          match rx_message.contents {
+            // LINKTEST RESPONSE
+            //
+            // The expected type of reply has been attained.
+            MessageContents::LinktestResponse => Ok(()),
+
+            // REJECT REQUEST
+            //
+            // At this point, the client on the other end has explicitly
+            // rejected the procedure, and no further action may be taken.
+            MessageContents::RejectRequest(_type, _reason) => Err(Error::new(ErrorKind::PermissionDenied, "semi_e37::generic::Client::linktest")),
+
+            // UNKNOWN
+            //
+            // A response has been found, but for some reason, it is not of
+            // the expected type, so we cannot do anything further.
+            _ => Err(Error::new(ErrorKind::InvalidData, "semi_e37::generic::Client::linktest")),
           }
-          // FINISH
-          Ok(())
         }
       }
     })
@@ -1231,9 +1832,22 @@ impl Client {
     ps_type: u8,
     reason: RejectReason,
   ) -> JoinHandle<Result<(), Error>> {
+    // CLONE CLIENT
+    //
+    // Because we want this function to run as a separate thread, for the
+    // caller to possibly do other things while waiting for the message to be
+    // transmitted, the client is cloned here.
     let clone: Arc<Client> = self.clone();
+
+    // SPAWN THREAD
+    //
+    // Now that the client is cloned, we can spawn a new thread which makes use
+    // of the clone rather than self.
     thread::spawn(move || {
-      // TX: Reject.req
+      // TRANSMIT REJECT REQUEST
+      //
+      // The reject request, as a fallback/error message, has no special logic,
+      // it is simply transmitted. No reply is expected in this procedure.
       clone.transmit(
         Message {
           id,
@@ -1242,6 +1856,10 @@ impl Client {
         false,
         clone.parameter_settings.t6,
       )?;
+
+      // FINISH
+      //
+      // The reject procedure has now succeeded.
       Ok(())
     })
   }

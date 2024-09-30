@@ -420,9 +420,11 @@ impl Client {
         if header_bytes != 10 {break 'rx Err(Error::from(ErrorKind::TimedOut))}
 
         // RECEIVE MESSAGE DATA
-        //, and any further data.
+        // Receive any further message data past the header.
         let data_length: u32 = length - 10;
         let mut data_buffer: Vec<u8> = vec![0; data_length as usize];
+        // If there is no message data past the header, stop here with an empty
+        // vec rather than initiating another read call.
         if data_length > 0 {
           let data_bytes: usize = match stream.read(&mut data_buffer) {
             // A reception was made, but possibly not all of the bytes needed
