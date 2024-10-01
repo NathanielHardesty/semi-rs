@@ -225,10 +225,6 @@ impl Client {
     // Now that a TCP stream has been connected and initiated, it is safe to
     // declare that the connection is live and may be used by the receive and
     // transmit protocols.
-    //
-    // TODO: This particular usage of guards may cause issues if this function
-    //       is called twice in rapid succession, a solution like that for the
-    //       selection state in the generic client may be required?
     *self.connection_state.write().unwrap().deref_mut() = ConnectionState::Connected(stream);
 
     // CREATE MESSAGE CHANNEL
@@ -307,10 +303,6 @@ impl Client {
     //
     // Now that the TCP connection has been shut down, it is safe to declare
     // that the connection is no longer live.
-    //
-    // TODO: This particular usage of guards may cause issues if this function
-    //       is called twice in rapid succession, a solution like that for the
-    //       selection state in the generic client may be required?
     *self.connection_state.write().unwrap().deref_mut() = ConnectionState::NotConnected;
 
     // FINISH

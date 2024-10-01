@@ -1002,39 +1002,15 @@ impl Client {
             //
             // Here, we match the incoming message to an outgoing message found
             // in the outbox.
-            match self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
-              // TRANSACTION NOT FOUND
+            if let Some(sender) = self.outbox.lock().unwrap().deref_mut().remove(&rx_message.id) {
+              // COMPLETE TRANSACTION
               //
-              // If the transaction isn't found, then this response message is
-              // invalid and should be handled accordingly.
-              None => {
-                // TRANSMIT REJECT REQUEST
-                //
-                // Here, we transmit a reject request, informing the client on
-                // the other end that the transaction is not open.
-                //
-                // TODO: This may be innapropriate to transmit in the case that
-                //       a reject request has been received?
-                if self.primitive_client.transmit(Message {
-                  id: rx_message.id,
-                  contents: MessageContents::RejectRequest(0, RejectReason::TransactionNotOpen as u8)
-                }.into()).is_err() {break}
-              }
-
-              // TRANSACTION FOUND
-              //
-              // If the transaction is found, then this response message is
-              // valid and should be given to the thread expecting it.
-              Some(sender) => {
-                // COMPLETE TRANSACTION
-                //
-                // Here, the open transmission procedure thread is given the
-                // response message it is waiting to receive.
-                sender.send(Some(Message {
-                  id: rx_message.id,
-                  contents: MessageContents::RejectRequest(ps_type, reason_code),
-                })).unwrap();
-              }
+              // Here, the open transmission procedure thread is given the
+              // response message it is waiting to receive.
+              sender.send(Some(Message {
+                id: rx_message.id,
+                contents: MessageContents::RejectRequest(ps_type, reason_code),
+              })).unwrap();
             }
           }
         }
@@ -1100,11 +1076,20 @@ impl Client {
       // without running the risk of another thread immediately queueing a
       // conflicting message. This locking is only done when a response is
       // expected.
-      //
-      // TODO: It may be necessary to inspect the outbox at this point to
-      //       prevent conflicting messages from being transmitted and only
-      //       caught later.
-      let outbox_lock: Option<MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>>> = if reply_expected {Some(self.deref().outbox.lock().unwrap())} else {None};
+      let outbox_lock: Option<MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>>> = if reply_expected {
+        Some({
+          let outbox: MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>> = self.deref().outbox.lock().unwrap();
+          if outbox.deref().contains_key(&message_id) {
+            // TRANSACTION ALREADY IN OUTBOX
+            //
+            // If the transaction is already found in the outbox due to a
+            // conflicting message ID being provided, the function should
+            // stop here and the caller informed of the issue.
+            return Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::transmit"));
+          }
+          outbox
+        })
+      } else {None};
 
       // TRANSMIT MESSAGE
       //
@@ -1159,28 +1144,15 @@ impl Client {
 
               // ADD TRANSACTION TO OUTBOX
               //
-              // We now attempt to stuff the new transaction into the outbox,
-              // ensuring that it does not conflict with another currently open
-              // transaction.
-              //
-              // TODO: If we check earlier for whether the transaction is open
-              //       already, we may be able to use insert rather than
-              //       try_insert here.
-              match outbox.deref_mut().try_insert(message_id, sender) {
-                // TRANSACTION ALREADY IN OUTBOX
-                //
-                // If the transaction is already found in the outbox due to a
-                // conflicting message ID being provided, the function should
-                // stop here and the caller informed of the issue.
-                Err(_error) => return Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::transmit")),
+              // We now place the new transaction into the outbox.
+              outbox.deref_mut().insert(message_id, sender);
 
-                // TRANSACTION ADDED TO OUTBOX
-                //
-                // Now that the transaction has been added into the outbox, we
-                // can proceed to wait for a reply. The lock should be broken
-                // here as its scope is exited.
-                Ok(_sender) => receiver,
-              }
+              // TRANSACTION ADDED TO OUTBOX
+              //
+              // Now that the transaction has been added into the outbox, we
+              // can proceed to wait for a reply. The lock should be broken
+              // here as its scope is exited.
+              receiver
             }
           }
         }
