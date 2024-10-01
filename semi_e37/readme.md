@@ -9,7 +9,7 @@ The codebase will be updated to reflect more up-to-date SEMI standards if/when t
 [![crates.io](https://img.shields.io/crates/v/semi_e37.svg)](https://crates.io/crates/semi_e37)
 [![crates.io](https://img.shields.io/crates/dv/semi_e37/0.2.0.svg)](https://crates.io/crates/semi_e37/0.2.0)
 
--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 **Based on:**
 
@@ -22,7 +22,7 @@ messages between semiconductor equipment over TCP/IP.
 Most commonly, exchanged messages are encoded with the [SECS-II] ([SEMI E5])
 protocol.
 
--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 For ease of programming and extension, the functionality of the protocol
 has been divided into a few subsets:

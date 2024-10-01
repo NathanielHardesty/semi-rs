@@ -28,12 +28,12 @@
 //! The codebase will be updated to reflect more up-to-date SEMI standards
 //! if/when they can be acquired for this purpose.
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! **Based on:**
 //! - **[SEMI E5]-0813**
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! SECS-II is a protocol designed to facilitate a common syntactic and
 //! semantic message structure used in communications between semiconductor
@@ -46,7 +46,7 @@
 //! to integrate host/equipment communication and behavior using SECS-II
 //! messages.
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! ## TO BE DONE
 //! 
@@ -54,7 +54,7 @@
 //! - Finish adding items.
 //! - Add messages to Streams 3 through 21.
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! ## REFERENCED STANDARDS
 //! 

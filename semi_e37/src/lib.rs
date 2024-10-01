@@ -28,13 +28,13 @@
 //! The codebase will be updated to reflect more up-to-date SEMI standards
 //! if/when they can be acquired for this purpose.
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! **Based on:**
 //! - **[SEMI E37]-1109**
 //! - **[SEMI E37].1-0702**
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! HSMS is a protocol designed to facilitate the reliable transmission of
 //! messages between semiconductor equipment over TCP/IP.
@@ -42,7 +42,7 @@
 //! Most commonly, exchanged messages are encoded with the [SECS-II]
 //! ([SEMI E5]) protocol.
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! For ease of programming and extension, the functionality of the protocol
 //! has been divided into a few subsets: 
@@ -56,7 +56,7 @@
 //!   communication.
 //!    - Not yet implemented.
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! ## TODO
 //! 

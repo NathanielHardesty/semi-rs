@@ -21,7 +21,7 @@
 //! ## ITEM FORMAT
 //! **Based on SEMI E5§9.2.2**
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! The list of format codes associated with various [Item] types. This module
 //! exists so that these codes can be referenced by name without undue syntax

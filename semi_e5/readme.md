@@ -9,7 +9,7 @@ The codebase will be updated to reflect more up-to-date SEMI standards if/when t
 [![crates.io](https://img.shields.io/crates/v/semi_e5.svg)](https://crates.io/crates/semi_e5)
 [![crates.io](https://img.shields.io/crates/dv/semi_e5/0.2.0.svg)](https://crates.io/crates/semi_e5/0.2.0)
 
--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 **Based on:**
 

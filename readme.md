@@ -4,7 +4,7 @@ Copyright © 2024 Nathaniel Hardesty, Licensed under the [MIT License](./license
 
 This software is created by a third-party and not endorsed or supported by SEMI.
 
--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 ## PROTOCOL MODEL
 
@@ -50,7 +50,7 @@ subject to change, as it is only provided for explanatory purposes.
 Based on **[SEMI E37]**, [HSMS] is a protocol designed to facilitate the
 reliable transmission of messages between semiconductor equipment over TCP/IP.
 
--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 ### PLANNED TRANSACTION LAYER PROTOCOLS
 
@@ -67,7 +67,7 @@ Based on **[SEMI E5]**, [SECS-II] is a protocol designed to facilitate a common
 syntactic and semantic message structure used in communications between
 semiconductor equipment.
 
--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 ### PLANNED ENCODING LAYER PROTOCOLS
 
