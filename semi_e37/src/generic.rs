@@ -24,7 +24,7 @@
 //! by any subsidiary standards. This involves the sending of messages of
 //! particular types and at particular times as allowed by the protocol.
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! To use the [Generic Services]:
 //! 
@@ -217,12 +217,12 @@ impl Client {
   /// 
   /// Connects the [Client] to the Remote Entity.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [NOT CONNECTED] state to use this
   /// procedure.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connect Procedure] has two different behaviors based on the
   /// [Connection Mode] provided to it:
@@ -233,7 +233,7 @@ impl Client {
   ///   and the [Client] initiates the [Connect Procedure] and waits up to the
   ///   time specified by [T5] for the Remote Entity to respond.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Upon completion of the [Connect Procedure], the [T8] parameter is set as
   /// the TCP stream's read and write timeout, and the [CONNECTED] state is
@@ -291,12 +291,12 @@ impl Client {
   /// 
   /// Disconnects the [Client] from the Remote Entity.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state to use this
   /// procedure.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Upon completion of the [Disconnect Procedure], the [NOT CONNECTED] state
   /// is entered.
@@ -369,7 +369,7 @@ impl Client {
   /// [Message]s and respond based on their [Message Contents] and the current
   /// [Selection State].
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### [Data Message]
   /// 
@@ -384,13 +384,13 @@ impl Client {
   ///   or by transmitting a [Reject.req] message, rejecting the
   ///   [Data Procedure] and completing the [Reject Procedure] if unsuccessful.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### [Select.req]:
   /// 
   /// - The [Client] will respond by calling the [Select Procedure Callback].
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### [Select.rsp]:
   /// 
@@ -400,13 +400,13 @@ impl Client {
   ///   [Select Procedure] and completing the [Reject Procedure] if
   ///   unsuccessful.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### [Deselect.req]:
   /// 
   /// - The [Client] will respond by calling the [Deselect Procedure Callback].
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### [Deselect.rsp]:
   /// 
@@ -416,14 +416,14 @@ impl Client {
   ///   message, rejecting the [Deselect Procedure] and completing the
   ///   [Reject Procedure] if unsuccessful.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### [Linktest.req]:
   /// 
   /// - The [Client] will respond with a [Linktest.rsp], completing the
   ///   [Linktest Procedure].
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### [Linktest.rsp]:
   /// 
@@ -432,7 +432,7 @@ impl Client {
   ///   [Linktest Procedure] if successful, or if unsuccessful by transmitting
   ///   a [Reject.req] message, completing the [Reject Procedure].
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### [Reject.req]:
   /// 
@@ -441,13 +441,13 @@ impl Client {
   ///   [Data Procedure], [Select Procedure], [Deselect Procedure], or
   ///   [Linktest Procedure], and completing the [Reject Procedure].
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### [Separate.req]:
   /// 
   /// - The [Client] will respond by calling the [Separate Procedure Callback].
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// #### Unknown [Primitive Message]:
   /// 
@@ -651,27 +651,62 @@ impl Client {
           // of a callback to respond to, as changing the selection state or
           // selection count must be handled immediately.
           MessageContents::SelectRequest => {
+            // LOCK SELECTION STATE
+            //
+            // Here, try_lock is used rather than lock in order to prevent the
+            // receive thread from causing a timeout even if the proper
+            // response to the procedure currently holding the lock has yet to
+            // be received.
             match self.selection_mutex.try_lock() {
+              // LOCK ATTAINED
+              //
+              // If the lock is properly attained, we can respond to the
+              // request immediately.
               Ok(_guard) => {
-                // CALLBACK
+                // SELECT CALLBACK
+                //
+                // Here, the select callback is called in order to attain the
+                // correct response to the select procedure.
                 let selection_count = self.selection_count.load(Relaxed);
                 let select_status = (self.procedure_callbacks.select)(rx_message.id.session, selection_count);
-                // CALLBACK: SUCCESS
+
+                // CALLBACK SUCCESS
+                //
+                // If the callback reports that the select procedure may be
+                // completed without error, we must handle that.
                 if let SelectStatus::Ok = select_status {
-                  // SELECTION COUNT + 1
+                  // ADD TO SELECTION COUNT
+                  //
+                  // At this point, the select procedure has succeeded, so
+                  // the selection count should be incremented.
                   self.selection_count.store(selection_count + 1, Relaxed);
-                  // TO: SELECTED
+
+                  // MOVE TO NOT SELECTED
+                  //
+                  // It doesn't matter if the client is already in the selected
+                  // state, overwriting that harms nothing, so we can set that
+                  // unconditionally here.
                   self.selection_state.store(SelectionState::Selected, Relaxed);
                 }
-                // TX: Select.rsp
+
+                // TRANSMIT SELECT RESPONSE
+                //
+                // The response given by the callback is now transmitted.
                 if self.primitive_client.transmit(Message {
                   id: rx_message.id,
                   contents: MessageContents::SelectResponse(select_status as u8),
                 }.into()).is_err() {break};
               }
-              Err(_error) => {
-                // TODO: probably appropriate to put something here, maybe to do with the simulatenous select procedure?
-              }
+
+              // LOCK PREVENTED
+              //
+              // If the lock is prevented, it means a procedure initiated by
+              // the user is currently waiting for a reply, so nothing can be
+              // done.
+              //
+              // TODO: Probably appropriate to place logic relating to the
+              //       simultaneous select procedure here?
+              Err(_error) => {}
             }
           }
 
@@ -723,37 +758,79 @@ impl Client {
           // require the use of a callback to respond to, as changing the
           // selection state or selection count must be handled immediately.
           MessageContents::DeselectRequest => {
+            // LOCK SELECTION STATE
+            //
+            // Here, try_lock is used rather than lock in order to prevent the
+            // receive thread from causing a timeout even if the proper
+            // response to the procedure currently holding the lock has yet to
+            // be received.
             match self.selection_mutex.try_lock() {
+              // LOCK ATTAINED
+              //
+              // If the lock is properly attained, we can respond to the
+              // request immediately.
               Ok(_guard) => {
-                // CALLBACK
+                // DESELECT CALLBACK
+                //
+                // Here, the deselect callback is called in order to attain the
+                // correct response to the deslect procedure.
                 let selection_count = self.selection_count.load(Relaxed);
+                // There must be at least one active selection for the request
+                // to be valid.
                 if selection_count > 0 {
                   let deselect_status = (self.procedure_callbacks.deselect)(rx_message.id.session, selection_count);
-                  // CALLBACK: SUCCESS
+
+                  // CALLBACK SUCCESS
+                  //
+                  // If the callback reports that the select procedure may be
+                  // completed without error, we must handle that.
                   if let DeselectStatus::Ok = deselect_status {
-                    // SELECTION COUNT - 1
+                    // SUBTRACT FROM SELECTION COUNT
+                    //
+                    // At this point, the deselect procedure has succeeded, so
+                    // the selection count should be decremented.
                     self.selection_count.store(selection_count - 1, Relaxed);
-                    // TO: NOT SELECTED
+
+                    // MOVE TO NOT SELECTED
+                    //
+                    // If the selection count has reached zero, this means its
+                    // time to move to the not selected state.
                     if self.selection_count.load(Relaxed) == 0 {
                       self.selection_state.store(SelectionState::NotSelected, Relaxed);
                     }
                   }
-                  // TX: Deselect.rsp
+
+                  // TRANSMIT DESELECT RESPONSE
+                  //
+                  // The response given by the callback is now transmitted.
                   if self.primitive_client.transmit(Message {
                     id: rx_message.id,
                     contents: MessageContents::DeselectResponse(deselect_status as u8),
                   }.into()).is_err() {break};
-                } else {
-                  // TX: Deselect.rsp
+                }
+                // In the case that the client has no active selections, the
+                // deselect request is unequivocally invalid.
+                else {
+                  // TRANSMIT DESELECT RESPONSE
+                  //
+                  // The deselect procedure is rejected without consulting the
+                  // callback here.
                   if self.primitive_client.transmit(Message {
                     id: rx_message.id,
                     contents: MessageContents::SelectResponse(DeselectStatus::NotEstablished as u8),
                   }.into()).is_err() {break};
                 }
-              },
-              Err(_error) => {
-                // TODO: probably appropriate to put something here, maybe to do with the simulatenous deselect procedure?
-              },
+              }
+
+              // LOCK PREVENTED
+              //
+              // If the lock is prevented, it means a procedure initiated by
+              // the user is currently waiting for a reply, so nothing can be
+              // done.
+              //
+              // TODO: Probably appropriate to place logic relating to the
+              //       simultaneous deselect procedure here?
+              Err(_error) => {}
             }
           }
 
@@ -810,16 +887,45 @@ impl Client {
           // previously formed selection.
           MessageContents::SeparateRequest => {
             // LOCK SELECTION STATE
+            //
+            // Here, the selection state is locked for editing so that the
+            // separate procedure can be responded to without outside
+            // interference.
+            //
+            // TODO: Maybe this way in which the guard is used is not needed,
+            //       as this is the only receive thread and all other threads
+            //       will be waiting their turn for when other messages are
+            //       received?
             let _guard: std::sync::MutexGuard<'_, ()> = self.selection_mutex.lock().unwrap();
-            // CALLBACK
-            let selection_count = self.selection_count.load(Relaxed);
+
+            // SEPARATE CALLBACK
+            //
+            // Here, the separate callback is called in order to attain the
+            // correct response to the separate procedure.
+            let selection_count: u16 = self.selection_count.load(Relaxed);
+            // There must be at least one active selection for the request
+            // to be valid.
             if selection_count > 0 {
-              let decrement = (self.procedure_callbacks.separate)(rx_message.id.session, selection_count);
-              // CALLBACK: SUCCESS
+              let decrement: bool = (self.procedure_callbacks.separate)(rx_message.id.session, selection_count);
+
+              // CALLBACK SUCCESS
+              //
+              // Due to the single-sided nature of the separate procedure, the
+              // separate callback is somewhat simpler than the other two. It
+              // only needs to know whether to decrement the selection count in
+              // response to having received the request, and does not need to
+              // transmit anything in return.
               if decrement {
-                // SELECTION COUNT - 1
+                // SUBTRACT FROM SELECTION COUNT
+                //
+                // At this point, the deselect procedure has succeeded, so
+                // the selection count should be decremented.
                 self.selection_count.store(selection_count - 1, Relaxed);
-                // TO: NOT SELECTED
+
+                // MOVE TO NOT SELECTED
+                //
+                // If the selection count has reached zero, this means its time
+                // to move to the not selected state.
                 if self.selection_count.load(Relaxed) == 0 {
                   self.selection_state.store(SelectionState::NotSelected, Relaxed);
                 }
@@ -938,7 +1044,7 @@ impl Client {
     // CLEAR OUTBOX
     //
     // Now that the TCP/IP connection is closed, all pending transactions
-    // should also be immediately closed with none rather than being forced
+    // should also be immediately closed with None rather than being forced
     // to time out.
     for (_, sender) in self.outbox.lock().unwrap().deref_mut().drain() {
       let _ = sender.send(None);
@@ -952,7 +1058,7 @@ impl Client {
   /// waiting up to the time specified for the requisite response [Message] to
   /// be recieved if it is necessary to do so.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state to use this
   /// procedure.
@@ -1125,7 +1231,7 @@ impl Client {
   /// [Data Message] and waiting for the corresponding response to be received
   /// if it is necessary to do so.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state and the
   /// [Selection State] must be in the [SELECTED] state to use this procedure.
@@ -1135,7 +1241,7 @@ impl Client {
   /// consider it a communications failure and initiate the
   /// [Disconnect Procedure].
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
   /// state will respond to having received a [Data Message] based on its
@@ -1281,7 +1387,7 @@ impl Client {
   /// [Select.req] message and waiting for the corresponding [Select.rsp]
   /// message to be received.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state to use this
   /// procedure.
@@ -1293,7 +1399,7 @@ impl Client {
   /// Upon completion of the [Select Procedure], the [SELECTED] state is
   /// entered, and the Selection Count is incremented by one.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
   /// state will respond to having received a [Select.req] message by calling
@@ -1429,7 +1535,7 @@ impl Client {
   /// [Deselect.req] message and waiting for the corresponding [Deselect.rsp]
   /// message to be received.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state and the
   /// [Selection State] must be in the [SELECTED] state to use this procedure.
@@ -1442,7 +1548,7 @@ impl Client {
   /// decremented. If the Selection Count becomes zero, the [NOT SELECTED]
   /// state is entered.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
   /// state will respond to having received a [Deselect.req] message by calling
@@ -1592,7 +1698,7 @@ impl Client {
   /// Asks the [Client] to initiate the [Separate Procedure] by transmitting a
   /// [Separate.req] message.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state and the
   /// [Selection State] must be in the [SELECTED] state to use this procedure.
@@ -1601,7 +1707,7 @@ impl Client {
   /// decremented by one. If the Selection Count becomes zero, the
   /// [NOT SELECTED] state is entered.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
   /// state will respond to having received a [Separate.req] message by calling
@@ -1697,7 +1803,7 @@ impl Client {
   /// [Linktest.req] message and waiting for the corresponding [Linktest.rsp]
   /// message to be received.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state to use this
   /// procedure.
@@ -1706,7 +1812,7 @@ impl Client {
   /// time specified by [T6] before it will consider it a communications
   /// failure and initiate the [Disconnect Procedure].
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the
   /// [CONNECTED] state will respond to having received a [Linktest.req]
@@ -1800,12 +1906,12 @@ impl Client {
   /// Asks the [Client] to complete the [Reject Procedure] by transmitting a
   /// [Reject.req] message.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state to use this
   /// procedure.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Although not done within this function, a [Client] in the [CONNECTED]
   /// state will respond to having received a [Reject.req] by correlating the
@@ -2166,127 +2272,199 @@ impl From<Message> for primitive::Message {
   /// [Generic Message]:   Message
   /// [Primitive Message]: primitive::Message
   fn from(message: Message) -> Self {
+    // MESSAGE CONTENTS
+    //
+    // The message contents enum is the most important way of deciding what kind
+    // of message is being used and how to handle converting it.
     match message.contents {
-      MessageContents::DataMessage(e5_message) => {
-        primitive::Message {
-          header: primitive::MessageHeader {
-            session_id        : message.id.session,
-            byte_2            : ((e5_message.w as u8) << 7) | e5_message.stream,
-            byte_3            : e5_message.function,
-            presentation_type : PresentationType::SecsII as u8,
-            session_type      : SessionType::DataMessage as u8,
-            system            : message.id.system,
-          },
-          text: match e5_message.text {
-            Some(item) => Vec::<u8>::from(item),
-            None => vec![],
-          },
-        }
-      },
-      MessageContents::SelectRequest => {
-        primitive::Message {
-          header: primitive::MessageHeader {
-            session_id        : message.id.session,
-            byte_2            : 0,
-            byte_3            : 0,
-            presentation_type : PresentationType::SecsII as u8,
-            session_type      : SessionType::SelectRequest as u8,
-            system            : message.id.system,
-          },
-          text: vec![],
-        }
-      },
-      MessageContents::SelectResponse(select_status) => {
-        primitive::Message {
-          header: primitive::MessageHeader {
-            session_id        : message.id.session,
-            byte_2            : 0,
-            byte_3            : select_status,
-            presentation_type : PresentationType::SecsII as u8,
-            session_type      : SessionType::SelectResponse as u8,
-            system            : message.id.system,
-          },
-          text: vec![],
-        }
-      },
-      MessageContents::DeselectRequest => {
-        primitive::Message {
-          header: primitive::MessageHeader {
-            session_id        : message.id.session,
-            byte_2            : 0,
-            byte_3            : 0,
-            presentation_type : PresentationType::SecsII as u8,
-            session_type      : SessionType::DeselectRequest as u8,
-            system            : message.id.system,
-          },
-          text: vec![],
-        }
-      },
-      MessageContents::DeselectResponse(deselect_status) => {
-        primitive::Message {
-          header: primitive::MessageHeader {
-            session_id        : message.id.session,
-            byte_2            : 0,
-            byte_3            : deselect_status,
-            presentation_type : PresentationType::SecsII as u8,
-            session_type      : SessionType::DeselectResponse as u8,
-            system            : message.id.system,
-          },
-          text: vec![],
-        }
-      },
-      MessageContents::LinktestRequest => {
-        primitive::Message {
-          header: primitive::MessageHeader {
-            session_id        : 0xFFFF,
-            byte_2            : 0,
-            byte_3            : 0,
-            presentation_type : PresentationType::SecsII as u8,
-            session_type      : SessionType::LinktestRequest as u8,
-            system            : message.id.system,
-          },
-          text: vec![],
-        }
-      },
-      MessageContents::LinktestResponse => {
-        primitive::Message {
-          header: primitive::MessageHeader {
-            session_id        : 0xFFFF,
-            byte_2            : 0,
-            byte_3            : 0,
-            presentation_type : PresentationType::SecsII as u8,
-            session_type      : SessionType::LinktestResponse as u8,
-            system            : message.id.system,
-          },
-          text: vec![],
-        }
-      },
-      MessageContents::RejectRequest(message_type, reason_code) => {
-        primitive::Message {
-          header: primitive::MessageHeader {
-            session_id        : message.id.session,
-            byte_2            : message_type,
-            byte_3            : reason_code,
-            presentation_type : PresentationType::SecsII as u8,
-            session_type      : SessionType::RejectRequest as u8,
-            system            : message.id.system,
-          },
-          text: vec![],
-        }
-      },
-      MessageContents::SeparateRequest => {
-        primitive::Message {
-          header: primitive::MessageHeader {
-            session_id        : message.id.session,
-            byte_2            : 0,
-            byte_3            : 0,
-            presentation_type : PresentationType::SecsII as u8,
-            session_type      : SessionType::SeparateRequest as u8,
-            system            : message.id.system,
-          },
-          text: vec![],
-        }
-      },
+      // DATA MESSAGE
+      MessageContents::DataMessage(e5_message) => {primitive::Message {
+        // HEADER
+        //
+        // Data messages make use of both bytes 2 and 3 for storing the
+        // stream/w-bit and function of the SECS-II message.
+        header: primitive::MessageHeader {
+          session_id        : message.id.session,
+          byte_2            : ((e5_message.w as u8) << 7) | e5_message.stream,
+          byte_3            : e5_message.function,
+          presentation_type : PresentationType::SecsII as u8,
+          session_type      : SessionType::DataMessage as u8,
+          system            : message.id.system,
+        },
+
+        // TEXT
+        //
+        // Data messages may have arbitrary text, but as it is stored in
+        // the form of a SECS-II item in messages, it must be converted.
+        text: match e5_message.text {
+          Some(item) => Vec::<u8>::from(item),
+          None => vec![],
+        },
+      }}
+
+      // SELECT REQUEST
+      MessageContents::SelectRequest => {primitive::Message {
+        // HEADER
+        //
+        // Bytes 2 and 3 are empty in select requests.
+        header: primitive::MessageHeader {
+          session_id        : message.id.session,
+          byte_2            : 0,
+          byte_3            : 0,
+          presentation_type : PresentationType::SecsII as u8,
+          session_type      : SessionType::SelectRequest as u8,
+          system            : message.id.system,
+        },
+
+        // TEXT
+        //
+        // Select requests do not contain text.
+        text: vec![],
+      }}
+
+      // SELECT RESPONSE
+      MessageContents::SelectResponse(select_status) => {primitive::Message {
+        // HEADER
+        //
+        // For select responses, byte 3 is used for the select status, byte 2
+        // is empty.
+        header: primitive::MessageHeader {
+          session_id        : message.id.session,
+          byte_2            : 0,
+          byte_3            : select_status,
+          presentation_type : PresentationType::SecsII as u8,
+          session_type      : SessionType::SelectResponse as u8,
+          system            : message.id.system,
+        },
+
+        // TEXT
+        //
+        // Select responses do not contain text.
+        text: vec![],
+      }}
+
+      // DESELECT REQUEST
+      MessageContents::DeselectRequest => {primitive::Message {
+        // HEADER
+        //
+        // Bytes 2 and 3 are empty in deselect requests.
+        header: primitive::MessageHeader {
+          session_id        : message.id.session,
+          byte_2            : 0,
+          byte_3            : 0,
+          presentation_type : PresentationType::SecsII as u8,
+          session_type      : SessionType::DeselectRequest as u8,
+          system            : message.id.system,
+        },
+
+        // TEXT
+        //
+        // Deslect requests do not contain text.
+        text: vec![],
+      }}
+
+      // DESELECT RESPONSE
+      MessageContents::DeselectResponse(deselect_status) => {primitive::Message {
+        header: primitive::MessageHeader {
+          session_id        : message.id.session,
+          byte_2            : 0,
+          byte_3            : deselect_status,
+          presentation_type : PresentationType::SecsII as u8,
+          session_type      : SessionType::DeselectResponse as u8,
+          system            : message.id.system,
+        },
+
+        // TEXT
+        //
+        // Deselect responses do not contain text.
+        text: vec![],
+      }}
+
+      // SEPARATE REQUEST
+      MessageContents::SeparateRequest => {primitive::Message {
+        // HEADER
+        //
+        // Bytes 2 and 3 are empty in separate requests.
+        header: primitive::MessageHeader {
+          session_id        : message.id.session,
+          byte_2            : 0,
+          byte_3            : 0,
+          presentation_type : PresentationType::SecsII as u8,
+          session_type      : SessionType::SeparateRequest as u8,
+          system            : message.id.system,
+        },
+
+        // TEXT
+        //
+        // Separate requests do not contain text.
+        text: vec![],
+      }}
+
+      // LINKTEST REQUEST
+      MessageContents::LinktestRequest => {primitive::Message {
+        // HEADER
+        //
+        // Bytes 2 and 3 are empty in linktest requests. Unlike most other
+        // message types, the linktest request cannot make use of any session ID
+        // other than 0xFFFF, so the user provided value is simply ignored.
+        header: primitive::MessageHeader {
+          session_id        : 0xFFFF,
+          byte_2            : 0,
+          byte_3            : 0,
+          presentation_type : PresentationType::SecsII as u8,
+          session_type      : SessionType::LinktestRequest as u8,
+          system            : message.id.system,
+        },
+
+        // TEXT
+        //
+        // Linktest requests do not contain text.
+        text: vec![],
+      }}
+
+      // LINKTEST RESPONSE
+      MessageContents::LinktestResponse => {primitive::Message {
+        // HEADER
+        //
+        // Bytes 2 and 3 are empty in linktest responses. Unlike most other
+        // message types, the linktest response cannot make use of any session
+        // ID other than 0xFFFF, so the user provided value is simply ignored.
+        header: primitive::MessageHeader {
+          session_id        : 0xFFFF,
+          byte_2            : 0,
+          byte_3            : 0,
+          presentation_type : PresentationType::SecsII as u8,
+          session_type      : SessionType::LinktestResponse as u8,
+          system            : message.id.system,
+        },
+
+        // TEXT
+        //
+        // Linktest responses do not contain text.
+        text: vec![],
+      }}
+
+      // REJECT REQUEST
+      MessageContents::RejectRequest(message_type, reason_code) => {primitive::Message {
+        // HEADER
+        //
+        // For reject requests, bytes 2 and 3 are used to store the p-type or
+        // s-type of the message being rejected, and the reject reason code
+        // respectively.
+        header: primitive::MessageHeader {
+          session_id        : message.id.session,
+          byte_2            : message_type,
+          byte_3            : reason_code,
+          presentation_type : PresentationType::SecsII as u8,
+          session_type      : SessionType::RejectRequest as u8,
+          system            : message.id.system,
+        },
+
+        // TEXT
+        //
+        // Reject requests do not contain text.
+        text: vec![],
+      }}
     }
   }
 }
@@ -2302,81 +2480,255 @@ impl TryFrom<primitive::Message> for Message {
   /// [Generic Message]:   Message
   /// [Primitive Message]: primitive::Message
   fn try_from(message: primitive::Message) -> Result<Self, Self::Error> {
-    if message.header.presentation_type != 0 {return Err(RejectReason::UnsupportedPresentationType)}
+    // PRESENTATION TYPE
+    //
+    // For any message in the generic services to be valid, the presentation
+    // type must be SECS-II (0). Since this information is not held in the
+    // generic message struct, we simply return early here if it is not correct.
+    if message.header.presentation_type != PresentationType::SecsII as u8 {return Err(RejectReason::UnsupportedPresentationType)}
+
+    // CONVERT MESSAGE
+    //
+    // The message is now converted from primitive to generic form. Many early
+    // returns exist within this block, but barring those, the function finishes
+    // here.
     Ok(Message {
+      // MESSAGE ID
+      //
+      // The session ID and system bytes can simply be copied directly out of
+      // the primitive message header.
       id: MessageID {
         session: message.header.session_id,
         system: message.header.system,
       },
+
+      // MESSAGE CONTENTS
+      //
+      // The header and contents of the primitive message have to be verified
+      // for correctness, starting first with the 
       contents: match message.header.session_type {
+        // DATA MESSAGE
         0 => {
+          // SEMI E5 MESSAGE
+          //
+          // Data messages, being the most complex message type, require special
+          // handling compared to other message types. This involves creating
+          // and storing an E5 compliant message, rather than just a couple of
+          // bytes.
           MessageContents::DataMessage(semi_e5::Message{
-            stream   : message.header.byte_2 & 0b0111_1111,
-            function : message.header.byte_3,
-            w        : message.header.byte_2 & 0b1000_0000 > 0,
-            text     : match semi_e5::Item::try_from(message.text) {
-              // Valid Item
-              Ok(text) => Some(text),
-              // Invalid Item
+            // STREAM
+            //
+            // The stream is attained from the first 7 bits of byte 2.
+            stream: message.header.byte_2 & 0b0111_1111,
+
+            // FUNCTION
+            //
+            // The function is attained from byte 3.
+            function: message.header.byte_3,
+
+            // W-BIT
+            //
+            // The w-bit is attained from the final bit of byte 2.
+            w: message.header.byte_2 & 0b1000_0000 > 0,
+
+            // TEXT
+            //
+            // In order to attain the contents of the message text, to be stored
+            // as a SECS-II item, we have to attempt to convert it from the raw
+            // bytes here.
+            text: match semi_e5::Item::try_from(message.text) {
+              // INVALID ITEM
+              //
+              // The SECS-II conversion function failed, so we have to catch it.
               Err(error) => {
+                // At this point, the item is either mangled, or empty, and
+                // these have different meanings.
                 match error {
-                  // Empty Text: Considered Valid Here
-                  semi_e5::Error::EmptyText => {None},
-                  // Other Error: Malformed Data
-                  _ => {return Err(RejectReason::MalformedData)}
+                  // EMPTY TEXT
+                  //
+                  // Empty text is permissible, many message types are defined
+                  // as not transmitting text, and upon converting the binary
+                  // this will be represented as an error.
+                  semi_e5::Error::EmptyText => None,
+                  
+                  // OTHER ERROR
+                  //
+                  // In any other case, an error means the message text is
+                  // malformed and cannot be handled further.
+                  _ => return Err(RejectReason::MalformedData),
                 }
-              },
+              }
+
+              // VALID ITEM
+              //
+              // At this point, the item is converted properly and we are done.
+              Ok(item) => Some(item),
             },
           })
-        },
+        }
+
+        // SELECT REQUEST
         1 => {
+          // BYTES 2 AND 3
+          //
+          // For select requests, bytes 2 and 3 are unused and must be 0.
           if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
           if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
-          if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
-          MessageContents::SelectRequest
-        },
-        2 => {
-          if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
-          if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
-          MessageContents::SelectResponse(message.header.byte_3)
-        },
-        3 => {
-          if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
-          if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
-          if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
-          MessageContents::DeselectRequest
-        },
-        4 => {
-          if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
-          if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
-          MessageContents::DeselectResponse(message.header.byte_3)
-        },
-        5 => {
-          if message.header.session_id != 0xFFFF {return Err(RejectReason::MalformedData)}
-          if message.header.byte_2     != 0      {return Err(RejectReason::MalformedData)}
-          if message.header.byte_3     != 0      {return Err(RejectReason::MalformedData)}
-          if !message.text.is_empty()            {return Err(RejectReason::MalformedData)}
-          MessageContents::LinktestRequest
-        },
-        6 => {
-          if message.header.session_id != 0xFFFF {return Err(RejectReason::MalformedData)}
-          if message.header.byte_2     != 0      {return Err(RejectReason::MalformedData)}
-          if message.header.byte_3     != 0      {return Err(RejectReason::MalformedData)}
-          if !message.text.is_empty()            {return Err(RejectReason::MalformedData)}
-          MessageContents::LinktestResponse
-        },
-        7 => {
+
+          // TEXT
+          //
+          // Select requests may not contain text.
           if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
-          MessageContents::RejectRequest(message.header.byte_2, message.header.byte_3)
-        },
-        9 => {
+
+          // FINISH
+          //
+          // Now that the message is verified, we may return.
+          MessageContents::SelectRequest
+        }
+
+        // SELECT RESPONSE
+        2 => {
+          // BYTE 2
+          //
+          // For select responses, byte 2 is unused and must be 0.
+          if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+
+          // TEXT
+          //
+          // Select responses may not contain text.
+          if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
+
+          // FINISH
+          //
+          // Since byte 3 is used, we can copy it over and return.
+          MessageContents::SelectResponse(message.header.byte_3)
+        }
+
+        // DESELECT REQUEST
+        3 => {
+          // BYTES 2 AND 3
+          //
+          // For deselect requests, bytes 2 and 3 are unused and must be 0.
           if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
           if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
-          if !message.text.is_empty()   {return Err(RejectReason::MalformedData)}
+
+          // TEXT
+          //
+          // Deslect requests may not contain text.
+          if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
+
+          // FINISH
+          //
+          // Now that the message is verified, we may return.
+          MessageContents::DeselectRequest
+        }
+
+        // DESELECT RESPONSE
+        4 => {
+          // BYTE 2
+          //
+          // For deselect responses, byte 2 is unused and must be 0.
+          if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+
+          // TEXT
+          //
+          // Deselect responses may not contain text.
+          if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
+
+          // FINISH
+          //
+          // Since byte 3 is used, we can copy it over and return.
+          MessageContents::DeselectResponse(message.header.byte_3)
+        }
+
+        // SEPARATE REQUEST
+        9 => {
+          // BYTES 2 AND 3
+          //
+          // For separate requests, bytes 2 and 3 are unused and must be 0.
+          if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+          if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
+
+          // TEXT
+          //
+          // Separate requests may not contain text.
+          if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
+
+          // FINISH
+          //
+          // Now that the message is verified, we may return.
           MessageContents::SeparateRequest
-        },
-        _ => {return Err(RejectReason::UnsupportedSessionType)}
-      },
+        }
+
+        // LINKTEST REQUEST
+        5 => {
+          // SESSION ID
+          //
+          // Uniquely among message types, the linktest procedure requires that
+          // a session ID of 0xFFFF is used.
+          if message.header.session_id != 0xFFFF {return Err(RejectReason::MalformedData)}
+
+          // BYTES 2 AND 3
+          //
+          // For linktest requests, bytes 2 and 3 are unused and must be 0.
+          if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+          if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
+
+          // TEXT
+          //
+          // Linktest requests may not contain text.
+          if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
+
+          // FINISH
+          //
+          // Now that the message is verified, we may return.
+          MessageContents::LinktestRequest
+        }
+
+        // LINKTEST RESPONSE
+        6 => {
+          // SESSION ID
+          //
+          // Uniquely among message types, the linktest procedure requires that
+          // a session ID of 0xFFFF is used.
+          if message.header.session_id != 0xFFFF {return Err(RejectReason::MalformedData)}
+
+          // BYTES 2 AND 3
+          //
+          // For linktest responses, bytes 2 and 3 are unused and must be 0.
+          if message.header.byte_2 != 0 {return Err(RejectReason::MalformedData)}
+          if message.header.byte_3 != 0 {return Err(RejectReason::MalformedData)}
+
+          // TEXT
+          //
+          // Linktest responses may not contain text.
+          if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
+
+          // FINISH
+          //
+          // Now that the message is verified, we may return.
+          MessageContents::LinktestResponse
+        }
+
+        // REJECT REQUEST
+        7 => {
+          // TEXT
+          //
+          // Reject requests may not contain text.
+          if !message.text.is_empty() {return Err(RejectReason::MalformedData)}
+
+          // FINISH
+          //
+          // Since bytes 2 and 3 are used, we can copy those over and return.
+          MessageContents::RejectRequest(message.header.byte_2, message.header.byte_3)
+        }
+
+        // INVALID SESSION TYPE
+        //
+        // At this point, we are unable to parse the message due to having an
+        // unknown session type.
+        _ => return Err(RejectReason::UnsupportedSessionType),
+      }
     })
   }
 }

@@ -27,7 +27,7 @@
 //! standard, but is an important piece of establishing and maintaining proper
 //! communications.
 //! 
-//! ---------------------------------------------------------------------------
+//! ----------------------------------------------------------------------------
 //! 
 //! To use the [Primitive Services]:
 //! 
@@ -119,12 +119,12 @@ impl Client {
   /// 
   /// Connects the [Client] to the Remote Entity.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [NOT CONNECTED] state to use this
   /// procedure.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connect Procedure] has two different behaviors based on the
   /// [Connection Mode] provided to it:
@@ -135,7 +135,7 @@ impl Client {
   ///   and the [Client] initiates the [Connect Procedure] and waits up to the
   ///   time specified by [T5] for the Remote Entity to respond.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Upon completion of the [Connect Procedure], the [T8] parameter is set as
   /// the TCP stream's read and write timeout, and the [CONNECTED] state is
@@ -205,10 +205,7 @@ impl Client {
             // operation is fallable.
             let socket: SocketAddr = entity.to_socket_addrs()?.next().ok_or(Error::new(ErrorKind::AddrNotAvailable, "semi_e37::primitive::Client::connect"))?;
             // Obtain and initiate a connection, with possible timeout.
-            let stream: TcpStream = TcpStream::connect_timeout(
-              &socket, 
-              t5,
-            )?;
+            let stream: TcpStream = TcpStream::connect_timeout(&socket, t5)?;
             (stream, socket)
           }
         }
@@ -259,12 +256,12 @@ impl Client {
   /// 
   /// Disconnects the [Client] from the Remote Entity.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state to use this
   /// procedure.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// Upon completion of the [Disconnect Procedure], the [NOT CONNECTED] state
   /// is entered.
@@ -364,7 +361,7 @@ impl Client {
       // represented separately. An Err means that the thread must close, an
       // Ok(None) means that the timeout occurred at an allowable time, and
       // an Ok(Some) means that a message has been received successfully.
-      let res: Result<Option<Message>, Error> = 'rx: {
+      let result: Result<Option<Message>, Error> = 'rx: {
         // Due to some kind of odd behavior expected by the read and write
         // functions, a mut& TcpStream is allowed to be used for achieving
         // the required mutability, rather than a &mut TcpStream. The latter
@@ -465,7 +462,7 @@ impl Client {
           text: data_buffer,
         }))
       };
-      match res {
+      match result {
         // RECEPTION SUCCESS
         //
         // When this branch is reached, it means that a message was received,
@@ -508,7 +505,7 @@ impl Client {
   /// 
   /// Serializes a [Message] and transmits it over the TCP/IP connection.
   /// 
-  /// -------------------------------------------------------------------------
+  /// --------------------------------------------------------------------------
   /// 
   /// The [Connection State] must be in the [CONNECTED] state to use this
   /// procedure.
