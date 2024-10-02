@@ -111,7 +111,7 @@ pub struct Client {
   /// 
   /// [New Client]:         Client::new
   /// [Parameter Settings]: ParameterSettings
-  parameter_settings: ParameterSettings,
+  pub(crate) parameter_settings: ParameterSettings,
 
   /// ### PROCEDURE CALLBACKS
   /// 
@@ -1076,20 +1076,25 @@ impl Client {
       // without running the risk of another thread immediately queueing a
       // conflicting message. This locking is only done when a response is
       // expected.
-      let outbox_lock: Option<MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>>> = if reply_expected {
-        Some({
-          let outbox: MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>> = self.deref().outbox.lock().unwrap();
-          if outbox.deref().contains_key(&message_id) {
-            // TRANSACTION ALREADY IN OUTBOX
-            //
-            // If the transaction is already found in the outbox due to a
-            // conflicting message ID being provided, the function should
-            // stop here and the caller informed of the issue.
-            return Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::transmit"));
-          }
-          outbox
-        })
-      } else {None};
+      let outbox_lock: Option<MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>>> = {
+        let outbox: MutexGuard<'_, HashMap<MessageID, SendOnce<Option<Message>>>> = self.deref().outbox.lock().unwrap();
+
+        // CHECK OUTBOX
+        //
+        // The outbox is now inspected for whether or not it contains a
+        // transaction that conflicts with the message we are trying to send.
+        // This is done regardless of whether we will need the outbox later,
+        // for the sake of correctness.
+        if outbox.deref().contains_key(&message_id) {
+          // TRANSACTION ALREADY IN OUTBOX
+          //
+          // If the transaction is already found in the outbox due to a
+          // conflicting message ID being provided, the function should
+          // stop here and the caller informed of the issue.
+          return Err(Error::new(ErrorKind::AlreadyExists, "semi_e37::generic::Client::transmit"));
+        }
+        if reply_expected {Some(outbox)} else {None}
+      };
 
       // TRANSMIT MESSAGE
       //

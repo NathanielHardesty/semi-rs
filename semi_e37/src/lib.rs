@@ -51,10 +51,9 @@
 //!   messages with proper headers.
 //! - [Generic Services] - Manages the sending of messages of particular types
 //!   and at particular times as allowed by the protocol. 
-//! - Single Selected Session Services - Manages the restriction of the
+//! - [Single Selected Session Services] - Manages the restriction of the
 //!   protocol to scenarios involving a single host/equipment pair in
 //!   communication.
-//!    - Not yet implemented.
 //! 
 //! ----------------------------------------------------------------------------
 //! 
@@ -62,21 +61,22 @@
 //! 
 //! - [Generic Services] - "Simultaneous Select Procedure"
 //! - [Generic Services] - "Simultaneous Deselect Procedure"
-//! - Single Selected Session Services
 //! 
 //! [SEMI E4]:  https://store-us.semi.org/products/e00400-semi-e4-specification-for-semi-equipment-communications-standard-1-message-transfer-secs-i
 //! [SEMI E5]:  https://store-us.semi.org/products/e00500-semi-e5-specification-for-semi-equipment-communications-standard-2-message-content-secs-ii
 //! [SEMI E30]: https://store-us.semi.org/products/e03000-semi-e30-specification-for-the-generic-model-for-communications-and-control-of-manufacturing-equipment-gem
 //! [SEMI E37]: https://store-us.semi.org/products/e03700-semi-e37-high-speed-secs-message-services-hsms-generic-services
 //! 
-//! [SECS-II]:            semi_e5
-//! [Primitive Services]: primitive
-//! [Generic Services]:   generic
+//! [SECS-II]:                          semi_e5
+//! [Primitive Services]:               primitive
+//! [Generic Services]:                 generic
+//! [Single Selected Session Services]: single
 
 #![feature(map_try_insert)]
 
 pub mod primitive;
 pub mod generic;
+pub mod single;
 
 /// ## PRESENTATION TYPE
 /// **Based on SEMI E37-1109§8.2.6.4**
